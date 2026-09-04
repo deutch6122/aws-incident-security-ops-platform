@@ -12,6 +12,20 @@
 
 ---
 
+## ポートフォリオ資料
+
+面接・案件担当者向けに、以下の資料を用意しています。
+
+| ドキュメント | 内容 |
+| --- | --- |
+| [docs/portfolio/overview.md](docs/portfolio/overview.md) | プロジェクト概要、ユースケース、AWSサービス一覧 |
+| [docs/portfolio/architecture-explanation.md](docs/portfolio/architecture-explanation.md) | アーキテクチャ詳細、各コンポーネントの説明 |
+| [docs/portfolio/demo-talk-track.md](docs/portfolio/demo-talk-track.md) | 30秒/1分/3分説明台本、GitHubの見せ順 |
+| [docs/portfolio/interview-q-and-a.md](docs/portfolio/interview-q-and-a.md) | 想定質問と回答例（14項目） |
+| [docs/portfolio/career-summary.md](docs/portfolio/career-summary.md) | 職務経歴書転用文、実績文、技術一覧 |
+
+---
+
 ## ディレクトリ構成
 
 ```
