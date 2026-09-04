@@ -204,3 +204,22 @@ python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機�
 | [docs/runbook/runbook.md](docs/runbook/runbook.md) | 障害時対応、DLQ 運用、撤去手順 |
 
 補足設計ドキュメント: [terraform-structure](docs/architecture/terraform-structure.md) / [terraform-backend-design](docs/architecture/terraform-backend-design.md) / [deployment-design](docs/operation/deployment-design.md) / [app-deployment-design](docs/operation/app-deployment-design.md) / [cicd-design](docs/operation/cicd-design.md) / [implementation-plan](docs/operation/implementation-plan.md)。
+
+---
+
+## CI（GitHub Actions）
+
+`.github/workflows/ci.yml` が `main` への push / pull_request と `workflow_dispatch` で自動テストを実行します。**CI は実 AWS 操作・デプロイを一切行いません**（terraform / AWS CLI / kubectl / docker build・push / s3 sync / CloudFront invalidation を実行しない。deploy スクリプトは `bash -n` の構文チェックのみ）。
+
+テストは **suite 別のジョブ**に分けて実行します。リポジトリ全体を単一 `pytest` プロセスで収集すると、複数ディレクトリがそれぞれ `conftest.py` / `pytest.ini` を持ち rootdir 下でモジュール名が衝突するため、Task 20 と同じく suite ごとに実行しています。
+
+| ジョブ | 対象 | 備考 |
+| --- | --- | --- |
+| infra module tests | `bootstrap` / `infra/environments/dev` / `infra/modules/*` の各 tests | Terraform 非実行の静的スナップショット |
+| db migration tests | `db/migrations/tests` | psycopg/testcontainers 未導入のため該当ケースは skip（Docker 不使用） |
+| backend-api tests | `apps/backend-api/tests` | `requirements-test.txt` から依存導入、`compileall` 実行 |
+| eks-workers tests | `apps/eks-workers/tests` | moto 未導入のため moto ケースは skip（fake ベースは実行） |
+| portal-lambda tests | `apps/portal-lambda/tests` | Property 10 は fake ベースで skip せず実行 |
+| portal-frontend tests | `apps/portal-frontend/tests` | 静的ファイル解析のみ |
+| scripts tests + deploy syntax | `scripts/tests` + `bash -n scripts/deploy-*.sh` | deploy スクリプトは実行しない |
+| static safety scan | git 管理対象 | 無視対象ファイル（`.venv`/`.env`/`.terraform`/`*.tfstate`/`*.tfvars.local`/`*.pem`/credentials 等）が追跡されていないこと、実 Secret / AWS 認証情報 / 実 ARN 相当が混入していないことを確認。`REPLACE_WITH_*` や `${var.*}`、AWS 公式ドキュメント用のダミーアカウント ID（`123456789012` 等）は許容 |

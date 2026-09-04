@@ -1,0 +1,228 @@
+# GitHub Actions CI for aws-incident-security-ops-platform.
+#
+# Runs the project's test suites automatically. It NEVER performs real AWS
+# operations or deployments: no terraform, no AWS CLI/auth, no kubectl/helm,
+# no docker build/push, no s3 sync / CloudFront invalidation. Deploy scripts
+# are only syntax-checked with `bash -n`.
+#
+# Suites are run in SEPARATE jobs/steps. A single top-level `pytest` process
+# over the whole tree fails to collect because several directories each ship
+# their own `conftest.py` / `pytest.ini` (e.g. bootstrap/tests, scripts/tests,
+# apps/*/tests) whose module names collide under one rootdir. Running each
+# suite from its own directory (or one path at a time) keeps rootdir/conftest
+# resolution unambiguous, which mirrors the Task 20 verification approach.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # 1. Terraform module snapshot tests (static, no terraform execution).
+  infra-tests:
+    name: infra module tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install test deps (pytest + hypothesis for dev-root Property 11)
+        run: python -m pip install --upgrade pip "pytest==8.3.5" "hypothesis==6.131.9"
+      - name: Run infra module snapshot tests (one path per invocation)
+        run: |
+          set -euo pipefail
+          suites=(
+            bootstrap/tests
+            infra/environments/dev/tests
+            infra/modules/network/tests
+            infra/modules/ecr/tests
+            infra/modules/aurora/tests
+            infra/modules/alb/tests
+            infra/modules/ecs/tests
+            infra/modules/eks/tests
+            infra/modules/messaging/tests
+            infra/modules/logging/tests
+            infra/modules/dynamodb/tests
+            infra/modules/s3-portal/tests
+            infra/modules/cloudfront/tests
+            infra/modules/cognito/tests
+            infra/modules/apigateway/tests
+            infra/modules/lambda/tests
+            infra/modules/monitoring/tests
+          )
+          for s in "${suites[@]}"; do
+            echo "::group::pytest $s"
+            python -m pytest "$s" -q -p no:cacheprovider
+            echo "::endgroup::"
+          done
+
+  # 2. DB migration smoke tests. psycopg/testcontainers are intentionally NOT
+  #    installed, so those cases skip (Docker is never started in CI).
+  db-migration-tests:
+    name: db migration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install test deps
+        run: python -m pip install --upgrade pip "pytest==8.3.5"
+      - name: Run db migration tests (testcontainers/psycopg cases skip)
+        run: python -m pytest db/migrations/tests -q -rs -p no:cacheprovider
+
+  # 3. Backend_API (Product_A). Installs from the repo's own requirements files.
+  backend-api-tests:
+    name: backend-api tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install deps from requirements-test.txt
+        working-directory: apps/backend-api
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+      - name: pytest
+        working-directory: apps/backend-api
+        run: python -m pytest tests -q -rs -p no:cacheprovider
+      - name: compileall
+        working-directory: apps/backend-api
+        run: python -m compileall -q app tests
+
+  # 4. EKS workers (Product_A). moto is not installed => moto cases skip;
+  #    the fake-based A->B and property tests still run.
+  eks-workers-tests:
+    name: eks-workers tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install deps from requirements-test.txt
+        working-directory: apps/eks-workers
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+      - name: pytest (moto cases skip when moto absent)
+        working-directory: apps/eks-workers
+        run: python -m pytest tests -q -rs -p no:cacheprovider
+      - name: compileall
+        working-directory: apps/eks-workers
+        run: python -m compileall -q workers tests
+
+  # 5. Portal_API Lambda (Product_B). Property 10 must run (not skip).
+  portal-lambda-tests:
+    name: portal-lambda tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install deps from requirements-test.txt
+        working-directory: apps/portal-lambda
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+      - name: pytest (Property 10 runs via in-memory fakes)
+        working-directory: apps/portal-lambda
+        run: python -m pytest tests -q -rs -p no:cacheprovider
+      - name: compileall
+        working-directory: apps/portal-lambda
+        run: python -m compileall -q app tests
+
+  # 6. Status Portal frontend (Product_B). Static file analysis only.
+  portal-frontend-tests:
+    name: portal-frontend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install test deps
+        run: python -m pip install --upgrade pip "pytest==8.3.5"
+      - name: pytest
+        working-directory: apps/portal-frontend
+        run: python -m pytest tests -q -p no:cacheprovider
+
+  # 7. Sample-data seed scripts + deploy scripts (static). No AWS, no execution.
+  scripts-tests:
+    name: scripts tests + deploy syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install test deps
+        run: python -m pip install --upgrade pip "pytest==8.3.5"
+      - name: pytest scripts/tests
+        run: python -m pytest scripts/tests -q -p no:cacheprovider
+      - name: compileall scripts
+        run: python -m compileall -q scripts
+      # deploy scripts are syntax-checked only; they are NEVER executed in CI.
+      - name: bash -n deploy scripts (syntax check only)
+        run: |
+          set -euo pipefail
+          bash -n scripts/deploy-ecs.sh
+          bash -n scripts/deploy-eks.sh
+          bash -n scripts/deploy-frontend.sh
+
+  # 8. Static safety scan: no ignored artifacts tracked, no real secrets/ARNs/
+  #    account ids/domains committed. AWS doc-placeholder account ids and
+  #    REPLACE_WITH_* / ${var.*} placeholders are allowed.
+  safety-scan:
+    name: static safety scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No ignored/sensitive files are tracked
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)\.venv/|(^|/)\.env($|\.)|\.terraform/|\.tfstate($|\.)|\.tfvars\.local$|\.pem$|(^|/)credentials($|/)|(^|/)\.pytest_cache/|(^|/)\.hypothesis/|(^|/)__pycache__/|(^|/)\.DS_Store$' ; then
+            echo "ERROR: tracked files match an ignored/sensitive pattern (see above)." >&2
+            exit 1
+          fi
+          echo "OK: no ignored/sensitive files are tracked."
+      - name: No real secrets / AWS credentials committed
+        run: |
+          set -euo pipefail
+          # Scan tracked files only; exclude this workflow file (it defines the patterns).
+          files="$(git ls-files | grep -vE '^\.github/workflows/ci\.yml$')"
+          fail=0
+          scan() { # <name> <ERE pattern>
+            local name="$1" pat="$2" hit
+            hit="$(printf '%s\n' "$files" | xargs -d '\n' grep -InE "$pat" 2>/dev/null || true)"
+            if [ -n "$hit" ]; then
+              echo "ERROR: potential $name found:" >&2
+              printf '%s\n' "$hit" >&2
+              fail=1
+            fi
+          }
+          scan "AWS access key id" 'AKIA[0-9A-Z]{16}'
+          scan "AWS secret access key assignment" 'aws_secret_access_key[[:space:]]*[:=]'
+          scan "JWT literal" 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+          scan "Bearer token literal" 'Bearer[[:space:]]+[A-Za-z0-9._-]{20,}'
+          scan "credential-bearing DB URL" 'postgres(ql)?://[^[:space:]/@]+:[^[:space:]/@]+@'
+          scan "PEM private key" '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+          if [ "$fail" -ne 0 ]; then
+            echo "Static safety scan failed." >&2
+            exit 1
+          fi
+          echo "OK: no real secrets/credentials detected (placeholders like REPLACE_WITH_* and AWS doc account ids are allowed)."
