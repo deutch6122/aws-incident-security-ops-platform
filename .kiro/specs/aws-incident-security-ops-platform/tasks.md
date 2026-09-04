@@ -203,16 +203,17 @@
     - _Requirements: 12.2, 12.3, 12.4, 13.1, 13.2, 13.3, 24.6_
   - _Implemented in Task 13: dynamodb module with 4 tables, GSI, TTL; s3-portal module with OAC-only bucket policy, public access block; cloudfront/oac/waf module with 2 origins, PriceClass_200, Managed Rules, Rate-based rule; snapshot tests._
 
-- [ ] 14. 認証と Portal API インフラ
-  - [ ] 14.1 cognito module を作成する
+- [x] 14. 認証と Portal API インフラ
+  - [x] 14.1 cognito module を作成する
     - `infra/modules/cognito`: User Pool、App Client を定義する
     - _Requirements: 9.1, 9.2_
-  - [ ] 14.2 apigateway module（Cognito JWT Authorizer）を作成する
+  - [x] 14.2 apigateway module（Cognito JWT Authorizer）を作成する
     - `infra/modules/apigateway`: `/api/*` ルート、Cognito JWT Authorizer、CloudFront からのルーティングを定義する
     - _Requirements: 9.3, 12.4_
-  - [ ] 14.3 lambda module を作成する
+  - [x] 14.3 lambda module を作成する
     - `infra/modules/lambda`: Portal_API Lambda（Python, 256〜512MB, timeout=10s）、lambda-portal-role（DynamoDB 読取＋page_view_logs 書込、Product_A 書込なし）、CloudWatch Logs を定義する
     - _Requirements: 9.3, 14.3, 18.3_
+  - _Implemented in Task 14: cognito module (User Pool, public App Client), apigateway module (HTTP API, Cognito JWT Authorizer, /api/* route, aws_lambda_permission), lambda module (256-512MB memory, 10s timeout, portal role with DynamoDB read on 3 tables and write on page_view_logs only, Product_A restricted). 37 passed, 0 skipped.
 
 - [ ] 15. Portal_API（Lambda）実装
   - [ ] 15.1 Portal_API プロジェクト骨格と共通層を実装する
