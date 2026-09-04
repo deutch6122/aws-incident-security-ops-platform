@@ -65,7 +65,7 @@ AWS Incident & Security Operations Platform のアーキテクチャを詳しく
 | コンポーネント | 責務 |
 | --- | --- |
 | **ECS + Backend_API** | FastAPI ベースの同期 API。Operator が incidents/findings/alarm_events/月次集計を管理。 |
-| **EKS Workers** | 非同期処理。EventBridge → SQS 驱动でアラーム/Finding 取込、月次集計生成。 |
+| **EKS Workers** | 非同期処理。EventBridge → SQS 駆動でアラーム/Finding 取込、月次集計生成。 |
 | **Aurora PostgreSQL** | 7 テーブル（incidents, findings, alarm_events, finding_triage, monthly_summaries, audit_logs, maintenance_windows）。 |
 | **EventBridge + SQS** | アラーム/Finding イベントの受領とキューイング。DLQ で失敗処理。 |
 
@@ -74,8 +74,8 @@ AWS Incident & Security Operations Platform のアーキテクチャを詳しく
 | コンポーネント | 責務 |
 | --- | --- |
 | **CloudFront + S3 + OAC** | 静的コンテンツのエッジ配信。OAC で S3 へのアクセスを CloudFront 経由に限定。 |
-| **WAF** | エッジ保護。Rate Limit、IP ブロック、SQL  injection 対策。 |
-| **Cognito + API Gateway + Lambda** | Viewer 向け API。JWT 認証で protect。 |
+| **WAF** | エッジ保護。Rate Limit、IP ブロック、SQL インジェクション対策。 |
+| **Cognito + API Gateway + Lambda** | Viewer 向け API。JWT 認証で保護。 |
 | **DynamoDB** | 4 テーブル（public_status_items, report_metadata, page_view_logs, maintenance_windows）。 |
 
 ## Backend API / ECS の説明
@@ -94,7 +94,7 @@ AWS Incident & Security Operations Platform のアーキテクチャを詳しく
 | --- | --- |
 | **alarm-event-processor** | SQS からアラームイベントを取得し、`alarm_events` テーブルへ upsert（`external_id` UNIQUE で冪等） |
 | **security-finding-worker** | SQS から Finding 風イベントを取得し、`findings` / `finding_triage` へ登録（同一 `external_id` は重複しない） |
-| **monthly-summary-cronjob** | 月次集計を実行し、A→B 連携 единственный 実行主体として Portal_Storage / report_metadata / public_status_items へ反映 |
+| **monthly-summary-cronjob** | 月次集計を実行し、A→B 連携の唯一の実行主体として Portal_Storage / report_metadata / public_status_items へ反映 |
 
 ## Aurora PostgreSQL の説明
 
@@ -110,7 +110,7 @@ AWS Incident & Security Operations Platform のアーキテクチャを詳しく
 ## SQS / EventBridge の説明
 
 - **EventBridge**: アラーム/Finding イベントの入り口。カスタムイベントバス不使用。
-- **SQS Standard**: メッセージ処理。失敗時の再配送回数無制限（DLQ で失敗吸う）。
+- **SQS Standard**: メッセージ処理。失敗時に再配送し、上限超過分は DLQ へ退避。
 - **DLQ**: 処理に失敗したメッセージを集約。DLQ > 0 で CloudWatch Alarm 発報。
 
 ## CloudFront / S3 OAC / WAF の説明

@@ -9,6 +9,7 @@
 *.tfstate.*
 .terraform/
 .terraform.tfstate.lock.info
+.terraform.lock.hcl
 crash.log
 crash.*.log
 # ローカル上書き・環境固有の値
