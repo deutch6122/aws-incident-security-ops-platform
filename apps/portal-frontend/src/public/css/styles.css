@@ -1,0 +1,70 @@
+/* Status Portal minimal styles (vanilla, no build step). */
+:root {
+  --fg: #1c2733;
+  --muted: #5a6b7b;
+  --accent: #1f6feb;
+  --bg: #f6f8fa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+header.site-header {
+  background: #fff;
+  border-bottom: 1px solid #e1e6eb;
+  padding: 12px 20px;
+}
+
+header.site-header nav a {
+  margin-right: 16px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+main {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+
+h1 {
+  font-size: 1.4rem;
+}
+
+ul.item-list {
+  list-style: none;
+  padding: 0;
+}
+
+ul.item-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid #e1e6eb;
+}
+
+ul.item-list a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 10px 18px;
+  font-size: 1rem;
+  cursor: pointer;
+}

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Status Portal — レポート詳細</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <nav aria-label="メインナビゲーション">
+        <a href="index.html">ログイン</a>
+        <a href="status.html">ステータス一覧</a>
+        <a href="reports.html">レポート一覧</a>
+      </nav>
+    </header>
+    <main>
+      <h1>レポート詳細</h1>
+      <p><a href="reports.html">← レポート一覧へ戻る</a></p>
+      <section id="report-detail">
+        <p class="muted">読み込み中...</p>
+      </section>
+    </main>
+    <script src="config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/pages.js"></script>
+    <script>
+      window.PortalPages.initReportDetailPage();
+    </script>
+  </body>
+</html>

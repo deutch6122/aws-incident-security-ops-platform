@@ -47,7 +47,8 @@ def test_importing_workers_package_does_no_io() -> None:
     import importlib
 
     for name in ("workers", "workers.config", "workers.sqs", "workers.stores",
-                 "workers.alarm", "workers.finding", "workers.summary"):
+                 "workers.alarm", "workers.finding", "workers.summary",
+                 "workers.linkage", "workers.portal_adapters"):
         importlib.import_module(name)
 
 

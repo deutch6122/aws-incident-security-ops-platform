@@ -232,15 +232,16 @@
   - [x]* 15.5 Portal_API の単体テストを作成する
     - JWT 欠落/無効 401、未登録レポート 404、一覧/詳細取得の具体例を moto/DynamoDB Local で検証する
     - _Requirements: 9.3, 10.1, 11.1, 11.3_
+  - _Implemented in Task 15: portal-lambda project (handler, config, auth JWT-claims fail-closed 401, DynamoDB access layer with lazy boto3, in-memory fakes), status API (GET /api/status, /api/status/{id}) with exactly-one page_view_logs write and public_status_items immutability, reports API (GET /api/reports, /api/reports/{id}, meta only), Property 10 (Hypothesis 100 examples). 21 passed, 0 skipped._
 
 - [ ] 16. Status Portal 静的フロントと A→B 連携
-  - [ ] 16.1 Status Portal 静的フロントを作成する
+  - [x] 16.1 Status Portal 静的フロントを作成する
     - `apps/portal-frontend/src/public`: ログイン（Cognito）、ステータス一覧、障害詳細、レポート一覧、レポート詳細の各画面と `/api/*` 呼び出しを実装する
     - _Requirements: 9.1, 10.1, 10.2, 11.1, 11.2_
-  - [ ] 16.2 A→B 連携を Cronjob_Summary に実装する
+  - [x] 16.2 A→B 連携を Cronjob_Summary に実装する
     - `monthly-summary-cronjob` にレポートファイルの Portal_Storage(`reports/*`) 配置、report_metadata 登録、public_status_items 反映を追加する（実行主体は CronJob に限定、MVP はダミー/非機微のみ）
     - _Requirements: 14.1, 14.2, 14.3_
-  - [ ]* 16.3 A→B 連携の統合テストを作成する
+  - [x]* 16.3 A→B 連携の統合テストを作成する
     - Cronjob_Summary の連携処理を moto/DynamoDB Local で1〜2例確認し、report_metadata/public_status_items 反映と S3 配置、B→A 書込が存在しないことを検証する
     - _Requirements: 14.1, 14.2, 14.3_
 
