@@ -1,0 +1,22 @@
+# Task 6.3 — schema-apply smoke test dependencies (LOCAL PostgreSQL container only).
+#
+# These are NOT required for the static test suite (test_schema_sql.py), which
+# runs with only pytest and no DB/Docker. They are ONLY needed to run the
+# testcontainers-based smoke test (test_schema_apply_smoke.py) against a local
+# throwaway PostgreSQL container.
+#
+# NOTE: These are intentionally NOT installed as part of Task 6.3. Install them
+# yourself (with Docker running) to execute the smoke test — see README.md.
+# Versions are pinned for reproducibility.
+#
+# AWS is never used by these tests; the only runtime dependency is a local
+# Docker daemon that testcontainers drives.
+
+pytest==8.3.4
+
+# Starts/stops a local PostgreSQL container for the smoke test.
+testcontainers[postgres]==4.9.0
+
+# PostgreSQL driver used to apply the migration and query the live catalog.
+# psycopg 3 with the bundled binary build (no local libpq/build toolchain needed).
+psycopg[binary]==3.2.3

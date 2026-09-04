@@ -1,0 +1,10 @@
+# Namespace for Product_A EKS workers. Must match the eks module Fargate profile
+# selector (var.worker_namespace, default "workers") and the IRSA trust policy
+# sub condition.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: workers
+  labels:
+    app.kubernetes.io/part-of: ops-platform
+    platform: ops-platform-dev

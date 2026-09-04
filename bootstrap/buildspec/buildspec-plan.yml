@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# buildspec-plan: terraform plan（作成/変更/削除一覧を出力 + コスト影響大リソース明示）
+# ---------------------------------------------------------------------------
+# plan 結果を artifact 化し、手動承認ステージの判断材料とする。
+# コスト影響が大きいリソース（Aurora / NAT / EKS / CloudFront）を echo で明示する。
+# 対応要件: Req 21.3, 23.1, 23.2
+# ---------------------------------------------------------------------------
+version: 0.2
+
+env:
+  variables:
+    TF_WORKDIR: "infra/environments/dev"
+
+phases:
+  install:
+    commands:
+      # jq は assume-role の一時クレデンシャル JSON パースに使用する。
+      - jq --version || echo "jq が無い場合は導入してください（例: yum install -y jq）"
+      - terraform version
+  build:
+    commands:
+      # terraform-exec-role を assume して一時クレデンシャルを export（権限分離）。
+      - echo "=== assume terraform-exec-role ==="
+      - |
+        set -euo pipefail
+        CREDS=$(aws sts assume-role \
+          --role-arn "$TERRAFORM_EXEC_ROLE_ARN" \
+          --role-session-name "tf-plan" \
+          --query 'Credentials' --output json)
+        export AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r .AccessKeyId)
+        export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r .SecretAccessKey)
+        export AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r .SessionToken)
+        echo "=== terraform init ==="
+        terraform -chdir="$TF_WORKDIR" init -input=false
+        echo "=== terraform plan (作成/変更/削除予定リソース一覧) ==="
+        # -out でバイナリ plan を保存し、apply 段階で同一 plan を適用する（Req 23.1）。
+        terraform -chdir="$TF_WORKDIR" plan -input=false -out=tfplan.binary
+        echo "=== plan の人間可読サマリを保存 ==="
+        terraform -chdir="$TF_WORKDIR" show -no-color tfplan.binary > "$TF_WORKDIR/plan-summary.txt"
+        echo "=== 作成/変更/削除リソースの一覧（抜粋） ==="
+        grep -E "will be (created|updated|destroyed|replaced)|# .* will be" "$TF_WORKDIR/plan-summary.txt" || true
+        echo "======================================================================"
+        echo "[コスト影響が大きいリソース] 以下は plan に含まれる場合に特にコストへ影響します（Req 23.2）:"
+        echo "  - Aurora (aws_rds_cluster / aws_rds_cluster_instance): Serverless v2 ACU 課金"
+        echo "  - NAT Gateway (aws_nat_gateway): 稼働時間 + データ処理課金"
+        echo "  - EKS (aws_eks_cluster / aws_eks_fargate_profile): クラスタ稼働課金"
+        echo "  - CloudFront (aws_cloudfront_distribution): 配信/リクエスト課金"
+        echo "以下に plan 内での該当リソースの有無を表示します:"
+        echo "======================================================================"
+        grep -E "aws_rds_cluster|aws_nat_gateway|aws_eks_cluster|aws_eks_fargate_profile|aws_cloudfront_distribution" "$TF_WORKDIR/plan-summary.txt" || echo "(コスト影響大リソースの変更は今回の plan にありません)"
+
+artifacts:
+  # apply 段階が同一 plan を適用できるよう、plan バイナリとサマリを引き継ぐ。
+  files:
+    - "infra/environments/dev/tfplan.binary"
+    - "infra/environments/dev/plan-summary.txt"

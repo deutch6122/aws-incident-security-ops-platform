@@ -1,0 +1,194 @@
+{
+  "pbtResults": {
+    "3.2 命名規則ヘルパーのプロパティテストを作成する（Property 11）": {
+      "status": "not_run",
+      "lastRunTimestamp": 1788494021484
+    },
+    "7.4 認可欠落 401 のプロパティテストを作成する（Property 2）": {
+      "status": "not_run",
+      "lastRunTimestamp": 1788499881141
+    },
+    "7.5 未登録識別子 404 のプロパティテストを作成する（Property 4）": {
+      "status": "not_run",
+      "lastRunTimestamp": 1788499886188
+    },
+    "10.3 アラーム取込冪等性のプロパティテストを作成する（Property 7）": {
+      "status": "passed",
+      "lastRunTimestamp": 1788504462410
+    },
+    "10.5 Finding 判定妥当性と冪等登録のプロパティテストを作成する（Property 8）": {
+      "status": "passed",
+      "lastRunTimestamp": 1788504463710
+    },
+    "10.7 月次集計整合性と再集計冪等性のプロパティテストを作成する（Property 9）": {
+      "status": "passed",
+      "lastRunTimestamp": 1788504464905
+    }
+  },
+  "executionHistory": {
+    "1.1 リポジトリのディレクトリ骨格を作成する": [
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788490676009
+      },
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788491256291
+      }
+    ],
+    "1.2 `.gitignore` を作成する": [
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788490676945
+      },
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788491256873
+      }
+    ],
+    "1.3 トップレベル README（構築・削除手順・注意点）を作成する": [
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788490678427
+      },
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788491257994
+      }
+    ],
+    "1.4 `docs/` 配下の設計・運用ドキュメントを作成する": [
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788490679341
+      },
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788491259305
+      }
+    ],
+    "1. リポジトリ骨格とドキュメント整備": [
+      {
+        "executionId": "114244de-0e06-4d83-8eb2-25780470c625",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788491259350
+      }
+    ],
+    "4. ネットワーク・ECR・Infra_Pipeline 定義": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495275539
+      },
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495649917
+      }
+    ],
+    "2.1 remote state 用 S3 と state lock 定義を作成する": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495281987
+      }
+    ],
+    "2.2 CI/CD 土台リソース（CodePipeline/CodeBuild/artifact S3/terraform-exec-role）を作成する": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495282186
+      }
+    ],
+    "2. Bootstrap（ローカル初回のみ）Terraform コード作成": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495282226
+      }
+    ],
+    "2.3 Bootstrap の IaC スナップショット/構成テストを作成する": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495282587
+      }
+    ],
+    "3.1 `infra/environments/dev` のルート構成と共通変数を作成する": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495282989
+      }
+    ],
+    "3. dev 環境 Terraform ルートと共通設定": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495283019
+      }
+    ],
+    "3.2 命名規則ヘルパーのプロパティテストを作成する（Property 11）": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495283186
+      }
+    ],
+    "4.1 network module を作成する": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495283587
+      },
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495649298
+      }
+    ],
+    "4.2 ecr module を作成する": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495283784
+      },
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495649682
+      }
+    ],
+    "4.3 Infra_Pipeline（fmt→validate→plan→承認→apply）を定義する": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495284187
+      },
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495649884
+      }
+    ],
+    "4.4 network/ecr/pipeline の IaC スナップショットテストを作成する": [
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495284465
+      },
+      {
+        "executionId": "a8dff055-e855-4866-809c-6891db3abd8e",
+        "chatSessionId": "sess_0d43e22a-fc45-401b-8efa-f069fca1ed86",
+        "timestamp": 1788495650205
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------------------
+# terraform.tfvars 例（コピーして terraform.tfvars を作成する）
+# ---------------------------------------------------------------------------
+# 実ファイル terraform.tfvars / *.tfvars.local は .gitignore 済み想定（機微値の混入防止, Req 16.3）。
+# ---------------------------------------------------------------------------
+
+aws_region = "ap-northeast-1"
+project    = "ops-platform"
+env        = "dev"
+
+# state lock 方式:
+#   第一候補は S3 backend の use_lockfile=true（S3 ネイティブロック）。
+#   旧方式互換の DynamoDB lock table が必要な場合のみ true にする（default=false）。
+enable_dynamodb_lock = false
+
+# CI/CD Source（CodePipeline）設定:
+#   CodeStar Connections（GitHub 等）の ARN と対象リポジトリ/ブランチ。
+#   接続の承認はコンソールで一度だけ行う。
+codestar_connection_arn = "" # 例: arn:aws:codestar-connections:ap-northeast-1:123456789012:connection/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+source_repository_id    = "" # 例: your-org/aws-incident-security-ops-platform
+source_branch           = "main"
+
+# 追加タグ（任意）
+additional_tags = {
+  # Owner = "platform-team"
+}

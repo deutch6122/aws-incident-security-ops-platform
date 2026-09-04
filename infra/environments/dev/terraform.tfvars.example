@@ -1,0 +1,54 @@
+# Non-sensitive dev example. Copy to terraform.tfvars only for local input
+# preparation; terraform.tfvars is intentionally ignored by Git.
+project    = "ops-platform"
+env        = "dev"
+aws_region = "ap-northeast-1"
+
+additional_tags = {
+  Owner      = "platform-team"
+  CostCenter = "portfolio-dev"
+}
+
+resource_name_suffixes = {}
+
+# Network: replace TEST-NET-3 with the trusted operator/office VPN CIDR before
+# deployment. The module rejects 0.0.0.0/0 for the future ALB ingress.
+network_vpc_cidr                 = "10.0.0.0/16"
+network_availability_zones       = ["ap-northeast-1a", "ap-northeast-1c"]
+network_public_subnet_cidrs      = ["10.0.0.0/24", "10.0.1.0/24"]
+network_private_app_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
+network_isolated_db_subnet_cidrs = ["10.0.20.0/24", "10.0.21.0/24"]
+network_enable_nat_gateway       = true
+network_allowed_alb_ingress_cidrs = ["203.0.113.0/24"]
+network_app_port                  = 8080
+network_external_https_egress_cidrs = ["0.0.0.0/0"]
+network_enable_vpc_endpoints        = false
+network_interface_vpc_endpoint_services = ["ecr.api", "ecr.dkr", "secretsmanager", "logs", "sqs"]
+
+# ECR lifecycle defaults favor dev cost control and immutable release tags.
+ecr_image_tag_mutability           = "IMMUTABLE"
+ecr_untagged_image_expiration_days = 7
+ecr_tagged_image_retention_count   = 10
+ecr_retained_tag_prefixes          = ["v", "release", "sha"]
+
+# Contract with bootstrap/buildspec: do not change these independently.
+pipeline_tf_workdir = "infra/environments/dev"
+pipeline_backend_key = "environments/dev/terraform.tfstate"
+
+# Aurora PostgreSQL Serverless v2: all values here are non-secret. RDS generates
+# the master credential in Secrets Manager; never add a password to this file.
+# Confirm the engine version and Serverless v2 support in ap-northeast-1 before apply.
+aurora_database_name                   = "opsplatform"
+aurora_engine_version                  = "16.6"
+aurora_master_username                 = "ops_admin"
+aurora_master_user_secret_kms_key_id   = null
+aurora_min_capacity                    = 0.5
+aurora_max_capacity                    = 2
+aurora_backup_retention_period         = 1
+aurora_enabled_cloudwatch_logs_exports = ["postgresql"]
+aurora_performance_insights_enabled    = false
+aurora_deletion_protection             = false
+# Safer default: retain a final snapshot. Before destroy, review retained
+# snapshot cost/recovery needs and set a unique identifier if required.
+aurora_skip_final_snapshot             = false
+aurora_final_snapshot_identifier       = null

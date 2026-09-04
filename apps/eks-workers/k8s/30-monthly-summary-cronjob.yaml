@@ -1,0 +1,61 @@
+# Cronjob_Summary. Runs monthly to aggregate incidents/findings/alarm_events
+# into monthly_summaries (period UNIQUE upsert). A->B linkage is Phase 3 and is
+# not part of this job yet. Uses the eks-cronjob ServiceAccount (IRSA), which has
+# no SQS or Portal write permission.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: monthly-summary-cronjob
+  namespace: workers
+  labels:
+    app.kubernetes.io/name: monthly-summary-cronjob
+    app.kubernetes.io/part-of: ops-platform
+spec:
+  # 03:10 UTC on the 1st of each month (example schedule).
+  schedule: "10 3 1 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: monthly-summary-cronjob
+            app.kubernetes.io/part-of: ops-platform
+        spec:
+          serviceAccountName: eks-cronjob
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: monthly-summary-cronjob
+              image: ${ECR_WORKERS_IMAGE}
+              command: ["python", "-m", "workers.entrypoints.monthly_summary_cronjob"]
+              env:
+                - name: WORKER_AWS_REGION
+                  value: ap-northeast-1
+                - name: WORKER_DB_SECRET_ARN
+                  value: ${WORKER_DB_SECRET_ARN}
+                # Optional: pin a specific YYYYMM period. Empty uses current UTC month.
+                - name: WORKER_SUMMARY_PERIOD
+                  value: ""
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi

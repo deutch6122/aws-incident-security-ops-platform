@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# buildspec-validate: terraform init（backend）→ terraform validate
+# ---------------------------------------------------------------------------
+# fmt の後に構文/参照の妥当性を検証する段階。
+# 対応要件: Req 21.3
+# ---------------------------------------------------------------------------
+version: 0.2
+
+env:
+  variables:
+    TF_WORKDIR: "infra/environments/dev"
+
+phases:
+  install:
+    commands:
+      # jq は assume-role の一時クレデンシャル JSON パースに使用する。
+      - jq --version || echo "jq が無い場合は導入してください（例: yum install -y jq）"
+      - terraform version
+  build:
+    commands:
+      # terraform-exec-role を assume して一時クレデンシャルを export（権限分離）。
+      - echo "=== assume terraform-exec-role ==="
+      - |
+        set -euo pipefail
+        CREDS=$(aws sts assume-role \
+          --role-arn "$TERRAFORM_EXEC_ROLE_ARN" \
+          --role-session-name "tf-validate" \
+          --query 'Credentials' --output json)
+        export AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r .AccessKeyId)
+        export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r .SecretAccessKey)
+        export AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r .SessionToken)
+        echo "=== terraform init (backend=s3, use_lockfile=true) ==="
+        # backend 設定は infra/environments/dev/backend.tf（use_lockfile=true）を使用。
+        terraform -chdir="$TF_WORKDIR" init -input=false
+        echo "=== terraform validate ==="
+        terraform -chdir="$TF_WORKDIR" validate

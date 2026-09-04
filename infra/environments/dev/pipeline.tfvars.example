@@ -1,0 +1,4 @@
+# Static dev/Infra_Pipeline contract inputs. This is non-sensitive documentation
+# input for the Terraform root; backend.tf remains a static S3 backend block.
+pipeline_tf_workdir = "infra/environments/dev"
+pipeline_backend_key = "environments/dev/terraform.tfstate"

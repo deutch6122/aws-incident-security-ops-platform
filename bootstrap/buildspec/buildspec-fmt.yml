@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# buildspec-fmt: terraform fmt -check（整形チェック）
+# ---------------------------------------------------------------------------
+# Infra_Pipeline の最初の検証段階。整形されていない場合は非ゼロ終了で失敗させる。
+# 対応要件: Req 21.3
+# ---------------------------------------------------------------------------
+version: 0.2
+
+env:
+  variables:
+    TF_WORKDIR: "infra/environments/dev"
+
+phases:
+  install:
+    commands:
+      - terraform version
+  build:
+    commands:
+      # fmt は terraform fmt のローカル処理のみで AWS 認証が不要なため、
+      # terraform-exec-role の assume-role は実行しない（他ステージとは異なる）。
+      - echo "=== terraform fmt -check (recursive) ==="
+      - terraform -chdir="$TF_WORKDIR" fmt -check -recursive

@@ -1,0 +1,3 @@
+# Bootstrap 構成テスト（静的検証）用の依存。
+# terraform / AWS 認証は不要。pytest のみで実行できる。
+pytest==8.3.4

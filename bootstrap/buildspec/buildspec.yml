@@ -1,0 +1,102 @@
+# ---------------------------------------------------------------------------
+# buildspec.yml（ディスパッチャ）
+# ---------------------------------------------------------------------------
+# CodePipeline の各 CodeBuild アクションが渡す環境変数 STAGE（fmt/validate/plan/apply）
+# に応じて処理を分岐する。個別の buildspec-*.yml と同等の処理をまとめたもの。
+# 順序（パイプライン側で担保）: fmt -> validate -> plan -> 手動承認 -> apply。
+# 対応要件: Req 21.3, 21.4, 23.1, 23.2, 23.3
+#
+# 権限分離（AssumeRole 分離設計）:
+#   CodeBuild の service_role は codebuild-role。Terraform 実行時は codebuild-role が
+#   terraform-exec-role（$TERRAFORM_EXEC_ROLE_ARN）を sts:AssumeRole し、取得した
+#   一時クレデンシャルを AWS_ACCESS_KEY_ID/SECRET/SESSION_TOKEN に export してから
+#   terraform を実行する。fmt はローカル処理のため assume 不要。
+# ---------------------------------------------------------------------------
+version: 0.2
+
+env:
+  variables:
+    TF_WORKDIR: "infra/environments/dev"
+    # STAGE は CodePipeline アクションの EnvironmentVariables で上書きされる。
+    STAGE: "plan"
+
+phases:
+  install:
+    commands:
+      # jq は一時クレデンシャルの JSON パースに使用する（標準イメージには同梱。
+      # 無い場合は `yum install -y jq` 等で導入する）。
+      - jq --version || echo "jq が無い場合は install phase で導入してください（例: yum install -y jq）"
+      - terraform version || echo "terraform を install phase で用意する場合はここでインストール"
+  build:
+    commands:
+      - |
+        set -euo pipefail
+        echo "=== STAGE=${STAGE} ==="
+
+        # terraform-exec-role を assume して一時クレデンシャルを export する関数。
+        # validate/plan/apply など AWS 認証が必要なステージの前に呼び出す。
+        assume_terraform_exec() {
+          echo "--- assume terraform-exec-role (${TERRAFORM_EXEC_ROLE_ARN}) ---"
+          CREDS=$(aws sts assume-role \
+            --role-arn "$TERRAFORM_EXEC_ROLE_ARN" \
+            --role-session-name "tf-${STAGE}" \
+            --query 'Credentials' --output json)
+          export AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r .AccessKeyId)
+          export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r .SecretAccessKey)
+          export AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r .SessionToken)
+        }
+
+        case "${STAGE}" in
+          fmt)
+            # fmt は terraform fmt のローカル処理のみで AWS 認証は不要（assume しない）。
+            echo "--- terraform fmt -check -recursive ---"
+            terraform -chdir="$TF_WORKDIR" fmt -check -recursive
+            ;;
+          validate)
+            echo "--- terraform init & validate ---"
+            assume_terraform_exec
+            terraform -chdir="$TF_WORKDIR" init -input=false
+            terraform -chdir="$TF_WORKDIR" validate
+            ;;
+          plan)
+            echo "--- terraform init & plan ---"
+            assume_terraform_exec
+            terraform -chdir="$TF_WORKDIR" init -input=false
+            terraform -chdir="$TF_WORKDIR" plan -input=false -out=tfplan.binary
+            terraform -chdir="$TF_WORKDIR" show -no-color tfplan.binary > "$TF_WORKDIR/plan-summary.txt"
+            echo "--- 作成/変更/削除予定リソース（抜粋） (Req 23.1) ---"
+            grep -E "will be (created|updated|destroyed|replaced)" "$TF_WORKDIR/plan-summary.txt" || true
+            echo "===================================================================="
+            echo "[コスト影響が大きいリソース] Aurora / NAT / EKS / CloudFront (Req 23.2)"
+            echo "===================================================================="
+            grep -E "aws_rds_cluster|aws_nat_gateway|aws_eks_cluster|aws_eks_fargate_profile|aws_cloudfront_distribution" "$TF_WORKDIR/plan-summary.txt" || echo "(コスト影響大リソースの変更なし)"
+            ;;
+          apply)
+            # このステージは手動承認の「後」にのみ到達する (Req 21.4, 23.3)。
+            # PrimarySource=source_output（コード一式）が作業ディレクトリ。
+            # 承認済み plan バイナリはセカンダリソース plan_output から参照する。
+            echo "--- terraform init & apply (承認済み plan を適用) ---"
+            assume_terraform_exec
+            PLAN_SRC_DIR_VAR="CODEBUILD_SRC_DIR_${PLAN_ARTIFACT_NAME:-plan_output}"
+            PLAN_SRC_DIR="${!PLAN_SRC_DIR_VAR:-}"
+            if [ -n "$PLAN_SRC_DIR" ] && [ -f "$PLAN_SRC_DIR/$TF_WORKDIR/tfplan.binary" ]; then
+              PLAN_FILE="$PLAN_SRC_DIR/$TF_WORKDIR/tfplan.binary"
+            else
+              # フォールバック（単一 input 実行時など）: 作業ディレクトリ内を参照。
+              PLAN_FILE="$TF_WORKDIR/tfplan.binary"
+            fi
+            echo "適用対象 plan: $PLAN_FILE"
+            terraform -chdir="$TF_WORKDIR" init -input=false
+            # plan バイナリは絶対/相対いずれのパスでも受け付けられるよう解決済みパスを渡す。
+            terraform -chdir="$TF_WORKDIR" apply -input=false -auto-approve "$PLAN_FILE"
+            ;;
+          *)
+            echo "unknown STAGE: ${STAGE}" >&2
+            exit 1
+            ;;
+        esac
+
+artifacts:
+  files:
+    - "infra/environments/dev/tfplan.binary"
+    - "infra/environments/dev/plan-summary.txt"

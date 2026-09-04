@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# buildspec-apply: 手動承認後にのみ実行される terraform apply
+# ---------------------------------------------------------------------------
+# このステージは CodePipeline 上で手動承認アクションの「後」にのみ配置される。
+# 承認が付与されなければ本ステージには到達しない（Req 21.4, 23.3）。
+# plan 段階で出力した tfplan.binary を適用し、承認内容と apply 内容を一致させる。
+# 対応要件: Req 21.3, 21.4, 23.3
+#
+# 入力アーティファクト:
+#   PrimarySource=source_output（Terraform コード一式）を作業ディレクトリとし、
+#   承認済み plan バイナリはセカンダリソース plan_output から参照する。
+#   plan_output のディレクトリは環境変数 CODEBUILD_SRC_DIR_plan_output で解決する。
+#
+# 権限分離: codebuild-role が terraform-exec-role を assume して apply を実行する。
+# ---------------------------------------------------------------------------
+version: 0.2
+
+env:
+  variables:
+    TF_WORKDIR: "infra/environments/dev"
+    PLAN_ARTIFACT_NAME: "plan_output"
+
+phases:
+  install:
+    commands:
+      # jq は assume-role の一時クレデンシャル JSON パースに使用する。
+      - jq --version || echo "jq が無い場合は導入してください（例: yum install -y jq）"
+      - terraform version
+  build:
+    commands:
+      # terraform-exec-role を assume して一時クレデンシャルを export（権限分離）。
+      - echo "=== assume terraform-exec-role ==="
+      - |
+        set -euo pipefail
+        CREDS=$(aws sts assume-role \
+          --role-arn "$TERRAFORM_EXEC_ROLE_ARN" \
+          --role-session-name "tf-apply" \
+          --query 'Credentials' --output json)
+        export AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r .AccessKeyId)
+        export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r .SecretAccessKey)
+        export AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r .SessionToken)
+
+        # 承認済み plan バイナリのパスを解決する。
+        # 複数 input（source_output + plan_output）の場合、セカンダリソースは
+        # CODEBUILD_SRC_DIR_<artifactName> で参照できる。
+        PLAN_SRC_DIR_VAR="CODEBUILD_SRC_DIR_${PLAN_ARTIFACT_NAME}"
+        PLAN_SRC_DIR="${!PLAN_SRC_DIR_VAR:-}"
+        if [ -n "$PLAN_SRC_DIR" ] && [ -f "$PLAN_SRC_DIR/$TF_WORKDIR/tfplan.binary" ]; then
+          PLAN_FILE="$PLAN_SRC_DIR/$TF_WORKDIR/tfplan.binary"
+        else
+          # フォールバック（単一 input 実行時など）。
+          PLAN_FILE="$TF_WORKDIR/tfplan.binary"
+        fi
+        echo "適用対象 plan: $PLAN_FILE"
+
+        echo "=== terraform init ==="
+        terraform -chdir="$TF_WORKDIR" init -input=false
+        echo "=== terraform apply (承認済み plan を適用) ==="
+        # plan 段階の tfplan.binary を適用することで、承認された内容と一致させる。
+        terraform -chdir="$TF_WORKDIR" apply -input=false -auto-approve "$PLAN_FILE"

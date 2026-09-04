@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# infra/environments/dev の remote backend 設定例
+# ---------------------------------------------------------------------------
+# このファイルは「例」です。実際に使う場合は backend.tf にコピーし、
+# bucket をご自身の Bootstrap で作成した state バケット名
+# （bootstrap の output `state_bucket_name`、例: ops-platform-dev-tfstate-<account_id>）
+# に置き換えてください。
+#
+# state lock 方式（第一候補）:
+#   `use_lockfile = true`（S3 ネイティブロック）を使用する。DynamoDB は不要。
+#   Terraform v1.10 以降が前提（bootstrap/versions.tf の required_version >= 1.10）。
+#   詳細は docs/architecture/terraform-backend-design.md を参照。
+# 対応要件: Req 20.1, 20.2, 20.3
+# ---------------------------------------------------------------------------
+
+terraform {
+  required_version = ">= 1.10"
+
+  backend "s3" {
+    bucket       = "ops-platform-dev-tfstate-<account_id>" # ← Bootstrap の output に置き換える
+    key          = "environments/dev/terraform.tfstate"
+    region       = "ap-northeast-1"
+    encrypt      = true
+    use_lockfile = true # 第一候補: S3 ネイティブロック（Terraform v1.10+）
+
+    # --- 代替案（旧方式互換 / 任意）: DynamoDB lock table を使う場合 ---
+    # 第一候補（use_lockfile = true）で十分なため、通常は不要。
+    # Terraform v1.10 未満と互換をとる必要がある場合のみ、bootstrap 側で
+    # enable_dynamodb_lock=true にしてテーブルを作成し、以下を有効化する。
+    # dynamodb_table = "ops-platform-dev-tfstate-lock"
+  }
+}
