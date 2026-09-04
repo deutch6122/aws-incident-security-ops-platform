@@ -23,6 +23,10 @@
     "10.7 月次集計整合性と再集計冪等性のプロパティテストを作成する（Property 9）": {
       "status": "passed",
       "lastRunTimestamp": 1788504464905
+    },
+    "15.3 閲覧記録の副作用不変条件のプロパティテストを作成する（Property 10）": {
+      "status": "passed",
+      "lastRunTimestamp": 1788516306386
     }
   },
   "executionHistory": {

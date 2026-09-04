@@ -215,21 +215,21 @@
     - _Requirements: 9.3, 14.3, 18.3_
   - _Implemented in Task 14: cognito module (User Pool, public App Client), apigateway module (HTTP API, Cognito JWT Authorizer, /api/* route, aws_lambda_permission), lambda module (256-512MB memory, 10s timeout, portal role with DynamoDB read on 3 tables and write on page_view_logs only, Product_A restricted). 37 passed, 0 skipped.
 
-- [ ] 15. Portal_API（Lambda）実装
-  - [ ] 15.1 Portal_API プロジェクト骨格と共通層を実装する
+- [x] 15. Portal_API（Lambda）実装
+  - [x] 15.1 Portal_API プロジェクト骨格と共通層を実装する
     - `apps/portal-lambda`: ハンドラ、DynamoDB アクセス層、JWT 検証（欠落/無効時 401）、README を作成する
     - _Requirements: 9.3, 18.3_
-  - [ ] 15.2 ステータス閲覧 API を実装する
+  - [x] 15.2 ステータス閲覧 API を実装する
     - `GET /api/status`（一覧）、`GET /api/status/{id}`（詳細）を実装し、閲覧時に page_view_logs へ1件記録、public_status_items 本体は変更しない
     - _Requirements: 10.1, 10.2, 10.3_
-  - [ ]* 15.3 閲覧記録の副作用不変条件のプロパティテストを作成する（Property 10）
+  - [x]* 15.3 閲覧記録の副作用不変条件のプロパティテストを作成する（Property 10）
     - **Property 10: 閲覧記録の副作用不変条件** — 閲覧後に page_view_logs がちょうど1件増加し、閲覧対象 public_status_items 本体が変更されないことを moto/DynamoDB Local で検証する
     - `# Feature: aws-incident-security-ops-platform, Property 10: For any 認証済み Viewer による障害ステータス閲覧または障害詳細閲覧について、閲覧操作の後に page_view_logs のレコードはちょうど 1 件増加し、かつ閲覧対象の public_status_items 本体は変更されてはならない`
     - **Validates: Requirements 10.3**
-  - [ ] 15.4 月次レポート閲覧 API を実装する
+  - [x] 15.4 月次レポート閲覧 API を実装する
     - `GET /api/reports`（一覧）、`GET /api/reports/{id}`（メタ＋レポートファイル参照情報、未登録は 404）を実装する
     - _Requirements: 11.1, 11.2, 11.3_
-  - [ ]* 15.5 Portal_API の単体テストを作成する
+  - [x]* 15.5 Portal_API の単体テストを作成する
     - JWT 欠落/無効 401、未登録レポート 404、一覧/詳細取得の具体例を moto/DynamoDB Local で検証する
     - _Requirements: 9.3, 10.1, 11.1, 11.3_
 

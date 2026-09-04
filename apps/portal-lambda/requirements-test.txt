@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest==8.3.5
+hypothesis==6.131.9
+# Optional (NOT installed here): moto[dynamodb] for a DynamoDB-backed variant of
+# the tests. The fake-based tests run without it; moto-dependent cases skip when
+# moto is absent.
