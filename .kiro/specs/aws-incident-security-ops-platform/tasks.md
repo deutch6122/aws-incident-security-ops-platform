@@ -234,7 +234,7 @@
     - _Requirements: 9.3, 10.1, 11.1, 11.3_
   - _Implemented in Task 15: portal-lambda project (handler, config, auth JWT-claims fail-closed 401, DynamoDB access layer with lazy boto3, in-memory fakes), status API (GET /api/status, /api/status/{id}) with exactly-one page_view_logs write and public_status_items immutability, reports API (GET /api/reports, /api/reports/{id}, meta only), Property 10 (Hypothesis 100 examples). 21 passed, 0 skipped._
 
-- [ ] 16. Status Portal 静的フロントと A→B 連携
+- [x] 16. Status Portal 静的フロントと A→B 連携
   - [x] 16.1 Status Portal 静的フロントを作成する
     - `apps/portal-frontend/src/public`: ログイン（Cognito）、ステータス一覧、障害詳細、レポート一覧、レポート詳細の各画面と `/api/*` 呼び出しを実装する
     - _Requirements: 9.1, 10.1, 10.2, 11.1, 11.2_
@@ -244,9 +244,11 @@
   - [x]* 16.3 A→B 連携の統合テストを作成する
     - Cronjob_Summary の連携処理を moto/DynamoDB Local で1〜2例確認し、report_metadata/public_status_items 反映と S3 配置、B→A 書込が存在しないことを検証する
     - _Requirements: 14.1, 14.2, 14.3_
+  - _Implemented in Task 16: portal-frontend static SPA (login/status-list/status-detail/report-list/report-detail, api.js calling /api/status(/{id}) and /api/reports(/{id}), Cognito config placeholders only); A->B linkage in monthly-summary-cronjob (CronJob-only trigger, write-only ports, reports/<period>/summary.json, report_metadata/public_status_items upsert with deterministic slash-free keys, non-sensitive counts/overview only, no B->A path); fake-based integration tests. eks-workers 42 passed / 3 moto-skipped, portal-frontend 13 passed._
 
-- [ ] 17. Checkpoint — Phase 3 の検証
+- [x] 17. Checkpoint — Phase 3 の検証
   - Ensure all tests pass, ask the user if questions arise.
+  - _Verified in Task 17: Tasks 13–16 完了確認。全テスト green（infra dynamodb/s3-portal/cloudfront 33 / infra cognito/apigateway/lambda 37 / portal-lambda 21（Property 10 Hypothesis 100 examples 含む, 0 skip）/ portal-frontend 13（0 skip）/ eks-workers 42＋3 skip）。skip は moto 未導入の 3 変種のみで実装未完了 skip なし（A→B fake ベース 7 pass、Product_A/B 分離テスト pass、Property 10 skip せず pass）。Product_B 構成静的確認（DynamoDB 4 テーブル＋report_metadata gsi_period＋page_view_logs/maintenance_windows TTL＋全 PAY_PER_REQUEST、S3 Portal public access block 全 true＋OAC 経由のみ許可 bucket policy、CloudFront S3+API Gateway 2 オリジン＋WAF Managed Rules＋Rate-based rule、Cognito User Pool＋App Client generate_secret=false、API Gateway Cognito JWT Authorizer＋ANY /api/{proxy+} Lambda 統合＋aws_lambda_permission、Lambda IAM は Product_B 限定・DynamoDB 読取 3 テーブル＋page_view_logs のみ書込）。Portal_API は 4 エンドポイント実装・fail-closed 401・未登録 404・閲覧ごと page_view_logs ちょうど 1 件・public_status_items 本体不変・boto3 lazy init（import 時 AWS 非接続）。frontend 5 画面＋/api 4 エンドポイント参照、Cognito は REPLACE_WITH_* placeholder のみ（実値・実 Token・実ドメイン・実 API URL 非埋め込み）。A→B 連携は Cronjob_Summary 限定起動・reports/<period>/summary.json・report_metadata/public_status_items 決定的キー upsert（再実行で重複せず上書き）・非機微のみ（record.detail 非伝播）・B→A 書込/参照なし。Secret/credential 混入なし（.venv/.env/tfstate/tfvars.local/pem/credentials は git 管理外、コード・README・テスト・frontend に実値なし。検出は .venv 内の第三者ライブラリ例示データのみ）。dev root は network/ecr/aurora のみ配線、Phase 3 modules（dynamodb/s3-portal/cloudfront/cognito/apigateway/lambda）は依存未確定のため意図的に未配線（各 module README に後続配線依存を明記）。ドキュメント整合（Cognito placeholder 方針、Portal Lambda JWT fail-closed/lazy boto3/Product_B 限定、A→B 非機微一方向/B→A なし、moto 未導入 skip・fake 代替を記載）。Phase 4 進行のブロッカーなし。非ブロッカー TODO: dev root README の Phase 3 未配線言及追記、実配線（dynamodb ARN→lambda / cognito issuer_url・app_client_id→apigateway / lambda invoke ARN・function name→apigateway / apigateway domain→cloudfront / cloudfront distribution ARN→s3-portal policy / s3 regional domain→cloudfront S3 origin / WAF us-east-1 provider alias）は後続 Phase で実施。_
 
 ### Phase 4: 運用・セキュリティ・デモ整備
 
