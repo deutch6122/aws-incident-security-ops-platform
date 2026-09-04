@@ -182,24 +182,26 @@
     - _Requirements: 6.1, 6.4, 6.5_
   - _Implemented in Task 11: messaging module (SQS/DLQ/EventBridge), logging module (Lambda/VPC FlowLogs groups, 14-or-30 day retention), async pipeline integration tests (fake-based pass, moto cases skipped due to moto not installed)._
 
-- [ ] 12. Checkpoint — Phase 2 の検証
+- [x] 12. Checkpoint — Phase 2 の検証
   - Ensure all tests pass, ask the user if questions arise.
+  - _Verified in Task 12: Tasks 6–11 完了確認。全テスト green（bootstrap 27 / dev root 19（Property 11 含む）/ network 6 / ecr 4 / aurora 6 / alb 11 / ecs 8 / eks 13 / messaging 10 / logging 9 / db migrations 8＋1 skip / backend-api 55 / eks-workers 31＋2 skip）。skip は testcontainers(Docker) 1 と moto 未導入 2 のみで実装未完了 skip なし（Property 7/8/9 は fake ベースで pass）。Secret/credential 混入なし（Aurora=RDS 管理シークレット、ECS=ARN 参照のみ）。Product_A/Product_B 分離維持（Phase 3 モジュールは README プレースホルダ、eks-cronjob-role に Portal 書込権限なし、A→B 連携は Phase 3）。dev root は network/ecr/aurora のみ配線、alb/ecs/eks/messaging/logging は依存未確定のため意図的に未配線（各 README に理由明記）。ドキュメント整合（HTTP 80 fallback/HTTPS 443、Fargate 組み込みログルーター DaemonSet 不使用、CloudWatch Logs retention 14/30 離散値、Docker/testcontainers/moto 未実行制約と fake 代替を明記）。Phase 3 進行のブロッカーなし。_
 
 ### Phase 3: 成果物B CloudFront 配信ポータル
 
-- [ ] 13. Portal_DB とストレージ・配信インフラ
-  - [ ] 13.1 dynamodb module を作成する
+- [x] 13. Portal_DB とストレージ・配信インフラ
+  - [x] 13.1 dynamodb module を作成する
     - `infra/modules/dynamodb`: 4テーブル（public_status_items / report_metadata[GSI gsi_period] / page_view_logs[TTL] / maintenance_windows[TTL]）、全て PAY_PER_REQUEST を定義する
     - _Requirements: 10.1, 11.1, 24.5_
-  - [ ] 13.2 s3-portal module（OAC 用）を作成する
+  - [x] 13.2 s3-portal module（OAC 用）を作成する
     - `infra/modules/s3-portal`: public access block 有効、OAC 経由のみ許可するバケットポリシー、`reports/*` プレフィックスを定義する
     - _Requirements: 12.2, 12.3_
-  - [ ] 13.3 cloudfront/oac/waf module を作成する
+  - [x] 13.3 cloudfront/oac/waf module を作成する
     - `infra/modules/cloudfront`: CloudFront(PriceClass_200, S3+API Gateway 2オリジン, HTTPS)、OAC、WAF(Managed Rules 1つ以上＋Rate-based rule)を定義する
     - _Requirements: 12.1, 12.4, 13.1, 13.2, 13.3, 24.6_
-  - [ ]* 13.4 配信・オリジン保護・WAF の IaC スナップショットテストを作成する
+  - [x]* 13.4 配信・オリジン保護・WAF の IaC スナップショットテストを作成する
     - S3 public access block 有効、OAC のみ許可のポリシー、CloudFront 2オリジン/PriceClass_200、WAF Managed Rules＋Rate-based rule を検証する
     - _Requirements: 12.2, 12.3, 12.4, 13.1, 13.2, 13.3, 24.6_
+  - _Implemented in Task 13: dynamodb module with 4 tables, GSI, TTL; s3-portal module with OAC-only bucket policy, public access block; cloudfront/oac/waf module with 2 origins, PriceClass_200, Managed Rules, Rate-based rule; snapshot tests._
 
 - [ ] 14. 認証と Portal API インフラ
   - [ ] 14.1 cognito module を作成する
