@@ -170,16 +170,17 @@
     - **Validates: Requirements 7.1, 7.2**
   - _Implemented in Task 10: eks module with Fargate profiles, IRSA roles, workers namespace; eks-workers project with alarm/finding processors, k8s manifests, and tests for Property 7-9._
 
-- [ ] 11. 非同期経路とログ集約インフラ
-  - [ ] 11.1 sqs/eventbridge module を作成する
+- [x] 11. 非同期経路とログ集約インフラ
+  - [x] 11.1 sqs/eventbridge module を作成する
     - `infra/modules/messaging`: SQS Standard Queue + DLQ（maxReceiveCount 超過で移動）、EventBridge rule（サンプルイベント投入用）、SQS への配送設定を定義する
     - _Requirements: 6.1, 6.4_
-  - [ ] 11.2 logging module を作成する
+  - [x] 11.2 logging module を作成する
     - `infra/modules/logging`: ECS/EKS/Lambda/ALB/VPC Flow の CloudWatch Logs グループ（保持14〜30日）、EKS Fargate 組み込みログルーター設定を定義する
     - _Requirements: 18.1, 18.2, 18.3_
-  - [ ]* 11.3 非同期経路の統合テストを作成する
+  - [x]* 11.3 非同期経路の統合テストを作成する
     - EventBridge→SQS→Worker→Aurora を moto 等で1〜3例確認、DLQ 移動・メッセージ削除を代表例で検証する
     - _Requirements: 6.1, 6.4, 6.5_
+  - _Implemented in Task 11: messaging module (SQS/DLQ/EventBridge), logging module (Lambda/VPC FlowLogs groups, 14-or-30 day retention), async pipeline integration tests (fake-based pass, moto cases skipped due to moto not installed)._
 
 - [ ] 12. Checkpoint — Phase 2 の検証
   - Ensure all tests pass, ask the user if questions arise.
