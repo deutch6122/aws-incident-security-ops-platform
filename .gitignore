@@ -65,3 +65,8 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Allow safe source modules named secrets.py.
+# These files contain secret-reader code only, not real secret values.
+!apps/backend-api/app/db/secrets.py
+!apps/eks-workers/workers/db/secrets.py
