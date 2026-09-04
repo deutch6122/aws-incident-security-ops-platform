@@ -253,15 +253,16 @@
 ### Phase 4: 運用・セキュリティ・デモ整備
 
 - [ ] 18. サンプルデータと監視・監査
-  - [ ] 18.1 サンプルデータ投入スクリプトを作成する
+  - [x] 18.1 サンプルデータ投入スクリプトを作成する
     - `scripts/`: ダミーのアラーム/Finding イベント投入スクリプト（EventBridge/SQS）、非機微レポート・public_status_items のシードスクリプトを作成する
     - _Requirements: 6.1, 14.1, 14.2_
-  - [ ] 18.2 monitoring module（CloudWatch Alarm/Dashboard/SNS）を作成する
+  - [x] 18.2 monitoring module（CloudWatch Alarm/Dashboard/SNS）を作成する
     - `infra/modules/monitoring`: SQS DLQ>0、ECS(CPU/Mem/タスク数)、ALB(5xx/レイテンシ)、Lambda(Errors/Throttles/Duration)、Aurora(ACU/接続数) の Alarm、A/B 分離2ダッシュボード、SNS 通知を定義する
     - _Requirements: 18.1_
-  - [ ]* 18.3 監査ログ出力確認と監視構成のテストを作成する
+  - [x]* 18.3 監査ログ出力確認と監視構成のテストを作成する
     - 状態変更で audit_logs が出力されること（統合）、DLQ>0 Alarm 等の監視構成が存在することをスナップショット/スモークで確認する
     - _Requirements: 8.3, 18.1_
+    - eed scripts、dry-run既定、monitoring module、CloudWatch Alarms、SNS、A/B dashboard分離、audit_logs確認、36 passed / 0 skipped を実装・検証済みであることを追記する
 
 - [ ] 19. App_Deploy スクリプトと運用ドキュメント
   - [ ] 19.1 App_Deploy スクリプト（ECS/EKS/CloudFront）を作成する
