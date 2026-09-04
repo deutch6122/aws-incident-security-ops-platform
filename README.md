@@ -51,7 +51,7 @@
 
 ---
 
-## 構築手順（Bootstrap → Infra_Pipeline → App_Deploy）
+## 構築手順（Bootstrap → Infra_Pipeline → App_Deploy → Sample Data → Monitoring）
 
 インフラは 3 層に分離しています。**実際の `terraform apply` / デプロイは、変更内容（plan）をユーザーが確認・承認した後にのみ実行してください。** 本 README のコマンドは手順を示すものであり、承認前の自動 apply は行いません。
 
@@ -81,16 +81,49 @@ terraform fmt → terraform validate → terraform plan → 手動承認 → ter
 
 ### 3. App_Deploy（インフラ apply と分離）
 
+アプリのデプロイはインフラ apply から分離しています（Req 22.1）。3 スクリプトはいずれも**既定 dry-run（print-only）**で、実コマンド（docker / aws / kubectl）は `--execute` を明示したときのみ実行します。必須値はすべて環境変数で渡し、実 ARN・実アカウント ID・実ドメイン・実 Secret は埋め込みません。App_Deploy は terraform を呼びません。
+
 ```bash
-# ECS: build → ECR push → service update
-scripts/deploy-ecs.sh
-# EKS: build → ECR push → kubectl apply
-scripts/deploy-eks.sh
-# CloudFront: frontend build → S3 sync → invalidation
-scripts/deploy-frontend.sh
+# ECS: docker build → ECR push → ECS service update（force new deployment, Req 22.2）
+AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
+  ECR_REPO=ops-platform-dev-backend-api \
+  ECS_CLUSTER=ops-platform-dev-cluster \
+  ECS_SERVICE=ops-platform-dev-backend-api \
+  scripts/deploy-ecs.sh --tag v1            # dry-run（既定）。実行は末尾に --execute
+
+# EKS: docker build → ECR push → kubectl apply（Req 22.3）
+AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
+  ECR_REPO=ops-platform-dev-eks-workers \
+  EKS_CLUSTER=ops-platform-dev-eks \
+  scripts/deploy-eks.sh --tag v1            # dry-run（既定）。実行は末尾に --execute
+
+# Frontend: 静的ファイル確認 → S3 sync → CloudFront invalidation（Req 22.4）
+AWS_REGION=ap-northeast-1 \
+  S3_BUCKET=ops-platform-dev-portal-REPLACE_WITH_SUFFIX \
+  CLOUDFRONT_DISTRIBUTION_ID=REPLACE_WITH_DISTRIBUTION_ID \
+  scripts/deploy-frontend.sh                # dry-run（既定）。実行は末尾に --execute
 ```
 
-> `scripts/*` は後続タスクで実装します（現状はプレースホルダ）。
+各スクリプトは `--help` / `-h` で使い方と必須環境変数を表示します。必須環境変数が未設定なら明確なエラーで終了します。
+
+### 4. Sample Data（サンプルデータ投入）
+
+dev/MVP の非機微・ダミーデータを投入します（Task 18.1）。これも既定 dry-run、実投入は `--execute`。
+
+```bash
+python3 scripts/seed_alarm_events.py --execute            # アラーム風イベント（EventBridge→SQS）
+python3 scripts/seed_finding_events.py --execute --count 5 # Finding 風イベント
+python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機微レポート/ステータス
+  --report-metadata-table ops-platform-dev-report-metadata \
+  --public-status-table  ops-platform-dev-public-status-items \
+  --reports-bucket       ops-platform-dev-portal-REPLACE_WITH_SUFFIX
+```
+
+投入後は Worker 取込 → Backend_API 確認 → 月次集計 → A→B 連携 → Status Portal 閲覧の順で確認できます（[docs/operation/operation.md](docs/operation/operation.md) のデモシナリオ参照）。
+
+### 5. Monitoring（監視の確認）
+
+`infra/modules/monitoring` の CloudWatch Alarm（SQS DLQ>0 / ECS CPU・Mem・タスク数 / ALB 5xx・レイテンシ / Lambda Errors・Throttles・Duration / Aurora ACU・接続数）、Product_A / Product_B を分けた 2 ダッシュボード、SNS 通知を確認します。障害時の一次対応は [docs/runbook/runbook.md](docs/runbook/runbook.md) を参照してください。
 
 ---
 
@@ -98,23 +131,32 @@ scripts/deploy-frontend.sh
 
 不要なリソースを削除してコストを止められます。**依存関係の逆順**で撤去してください。撤去も破壊的操作のため、ユーザー承認後にのみ実行します。
 
-1. **App レイヤの停止**
+> **本タスクでは `terraform destroy` を実行しません。** 下記は撤去を行う際の手順・注意です。実施時は plan（`-destroy`）で削除対象を確認し、ユーザー承認後にのみ destroy してください。削除・停止前の確認は [docs/runbook/runbook.md](docs/runbook/runbook.md#削除停止前の確認) を参照。
+
+1. **App レイヤの停止**（App_Deploy スクリプトではなく停止操作で行う）
    - ECS service の desired_count を 0 に、または service 削除。
    - EKS の Deployment / CronJob を削除（`kubectl delete -f apps/eks-workers/k8s/`）。
    - CloudFront ディストリビューションを無効化。
-2. **S3 / ECR の中身削除**（`terraform destroy` 前に空にする必要がある）
-   - Portal_Storage / artifact / state 以外の S3 バケットのオブジェクトを削除。
-   - ECR リポジトリのイメージを削除。
-3. **本体インフラの撤去**
+2. **CloudFront / S3 の注意**
+   - CloudFront は無効化 → デプロイ完了後に削除（削除は時間がかかる）。OAC / WAF Web ACL の関連付け解除も確認。
+   - Portal_Storage（静的サイト / `reports/*`）の S3 オブジェクトは `terraform destroy` 前に空にする必要があります。
+3. **ECR image の削除**
+   - `ops-platform-dev-backend-api` / `ops-platform-dev-eks-workers` のイメージを削除（リポジトリを空にしてから撤去）。
+4. **DynamoDB / S3 データの削除**
+   - DynamoDB 4 テーブル（public_status_items / report_metadata / page_view_logs / maintenance_windows）のデータ要否を確認。
+   - artifact / その他 S3 バケットのオブジェクトを削除。
+5. **Aurora のスナップショット・final snapshot**
+   - 削除前に必要ならスナップショットを取得。削除時は `final snapshot` の要否（`skip_final_snapshot` / `final_snapshot_identifier`）を判断してから撤去。
+6. **本体インフラの撤去（terraform destroy は本タスクでは実行しない）**
    ```bash
-   terraform -chdir=infra/environments/dev plan -destroy   # 削除対象を確認
-   terraform -chdir=infra/environments/dev destroy          # ← 承認後にのみ実行
+   terraform -chdir=infra/environments/dev plan -destroy   # 削除対象を確認（本タスクではここまで）
+   terraform -chdir=infra/environments/dev destroy          # ← 実施時は承認後にのみ実行
    ```
    - コスト影響が大きい **Aurora / NAT Gateway / EKS / CloudFront** が削除対象に含まれることを確認します。
-4. **Bootstrap の手動削除（最後）**
+7. **Bootstrap の手動削除（最後）**
    - remote state / CI/CD 土台は最後に撤去します。state 用 S3 と artifact S3 のオブジェクトを空にしてから削除。
    - DynamoDB lock table を使っている場合は併せて削除。
-5. **残存確認**
+8. **残存確認**
    - CloudWatch Logs グループ、Secrets Manager シークレット、WAF Web ACL 等の取り残しがないか確認します。
 
 ---
@@ -123,12 +165,32 @@ scripts/deploy-frontend.sh
 
 - **dev 環境限定**: 本構成は dev 環境の MVP です。prod / staging は対象外です（Req 24.1）。
 - **ALB 公開範囲**: Product_A は社内運用基盤です。デモ用に public ALB とする場合でも、**許可 CIDR 限定を強く推奨**します（`sg-alb` の `0.0.0.0/0` はデモ用と明記）。本番想定では **internal ALB もしくは許可 CIDR 限定**とします（Req 15.1）。
-- **コスト影響が大きいリソース**: **Aurora / NAT Gateway / EKS / CloudFront** はコスト影響が大きいため、`terraform plan` で明示し、不要時は上記撤去手順で停止してください（Req 23.2, 24）。代替案（Aurora→RDS t4g.micro、NAT→VPC エンドポイント、CloudFront→PriceClass_100）を設計文書に記載しています。
+- **コスト影響が大きいリソース**: **Aurora / NAT Gateway / EKS / CloudFront・WAF / CloudWatch Logs retention** はコスト影響が大きいため、`terraform plan` で明示し、不要時は上記撤去手順で停止してください（Req 23.2, 24）。代替案（Aurora→RDS t4g.micro、NAT→VPC エンドポイント、CloudFront→PriceClass_100）を設計文書に記載しています。Logs は保持期間 14〜30 日で構成しています。
 - **シークレットをコードに直書きしない**: DB パスワード等は Secrets Manager で管理し、ソースコード / IaC / 環境変数へ平文で含めません（Req 16.1/16.2）。`.env` / `*.pem` / `credentials` 等は `.gitignore` で除外済み（Req 16.3）。
 - **承認前の terraform apply 禁止**: 本体インフラの作成・更新は Infra_Pipeline の**手動承認後**にのみ実行します。ローカルからの継続 apply は行いません（Req 21.4, 21.5, 23.3）。
 - **レポートファイルは MVP ではダミー/非機微のみ**: 機微レポートは後続 Phase で署名付きアクセス（CloudFront signed URL/cookie または API 経由の S3 pre-signed URL）を導入します。
+- **Product_A / Product_B の分離と A→B 一方向**: 両者は単一システムへ統合せず、連携は **A→B の一方向・非同期のみ**（実行主体は `monthly-summary-cronjob` に限定）。**Product_B → Product_A への書き込み・参照は設計上排除**しています（Req 14.3 / 非スコープ）。
+- **App_Deploy は dry-run 既定**: `scripts/deploy-*.sh` と `scripts/seed_*.py` は既定 dry-run（print-only）。実コマンド（docker / aws / kubectl / s3 sync / invalidation）は `--execute` 明示時のみ実行し、App_Deploy から terraform は呼びません。
 
 ---
+
+## dev ルート未配線モジュールと後続配線事項
+
+`infra/environments/dev` ルートは現状 **network / ecr / aurora** のみを配線しています。以下のモジュールは実装済み（`infra/modules/*`）ですが、オリジン間の依存値（ARN / issuer / domain 等）が確定していないため **意図的に dev ルートへ未配線**です。各 module の README に後続配線の依存を明記しています。
+
+| 未配線 module | 後続配線で渡す主な値 |
+| --- | --- |
+| `alb` / `ecs` / `eks` | network（VPC/Subnet/SG）、ecr（image URI）、aurora（Secrets Manager ARN） |
+| `messaging` / `logging` | SQS/DLQ ARN、EventBridge target、Logs group 参照 |
+| `dynamodb` | テーブル ARN → `lambda` の読取/書込ポリシー |
+| `s3-portal` | `cloudfront` の distribution ARN → OAC 許可 bucket policy |
+| `cloudfront` | s3-portal の regional domain（S3 オリジン）、apigateway の domain（API オリジン）、WAF（us-east-1 provider alias） |
+| `cognito` | issuer_url / app_client_id → `apigateway` の JWT Authorizer |
+| `apigateway` | lambda invoke ARN / function name、CloudFront ルーティング |
+| `lambda` | dynamodb テーブル ARN、CloudWatch Logs |
+| `monitoring` | 各リソース（SQS/ECS/ALB/Lambda/Aurora）の識別子 → Alarm dimensions |
+
+後続 Phase で上記の実配線（各 module の出力 → 依存 module の入力）を dev ルートに追加します。本タスクでは Terraform module の新規実装・変更・dev ルート配線は行いません。
 
 ## ドキュメント
 

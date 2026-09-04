@@ -69,10 +69,65 @@ python3 -m pytest scripts/tests -q
 python3 -m compileall -q scripts
 ```
 
-## デプロイスクリプト（予定 / Task 19.1）
+## デプロイスクリプト（Task 19.1）
 
-- `deploy-ecs.sh` … build → ECR push → ECS service update（Req 22.2）
-- `deploy-eks.sh` … build → ECR push → `kubectl apply`（Req 22.3）
-- `deploy-frontend.sh` … build → S3 sync → CloudFront invalidation（Req 22.4）
+App_Deploy（アプリのデプロイ）はインフラの `terraform apply` から分離します（Req 22.1）。
+言語は bash。いずれも**既定は dry-run（print-only）**で、実コマンド（docker / aws /
+kubectl）は `--execute` を明示したときのみ実行します。**dry-run 経路では docker /
+AWS CLI / kubectl を一切呼びません**（`run` ヘルパが dry-run 判定して echo するだけ）。
+App_Deploy スクリプトは terraform を呼びません。
 
-> App_Deploy はインフラ apply と分離する。実装は Task 19.1 で追加する。
+| スクリプト | 処理順 | 対応要件 |
+| --- | --- | --- |
+| `deploy-ecs.sh` | docker build → ECR push → ECS service update（force new deployment） | Req 22.1, 22.2 |
+| `deploy-eks.sh` | docker build → ECR push → `kubectl apply`（k8s manifests） | Req 22.1, 22.3 |
+| `deploy-frontend.sh` | 静的ファイル確認 → `aws s3 sync` → CloudFront invalidation | Req 22.1, 22.4 |
+
+### 使い方
+
+各スクリプトは `--help` / `-h` で使い方と必須環境変数を表示します。必須環境変数が
+未設定なら明確なエラーで終了します。実 ARN・実アカウント ID・実ドメイン・実 Secret
+は埋め込まず、すべて環境変数 / プレースホルダで渡します。
+
+```bash
+# ECS（dry-run: 既定）。実行は末尾に --execute を付ける
+AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
+  ECR_REPO=ops-platform-dev-backend-api \
+  ECS_CLUSTER=ops-platform-dev-cluster \
+  ECS_SERVICE=ops-platform-dev-backend-api \
+  scripts/deploy-ecs.sh --tag v1
+
+# EKS（dry-run: 既定）
+AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
+  ECR_REPO=ops-platform-dev-eks-workers \
+  EKS_CLUSTER=ops-platform-dev-eks \
+  scripts/deploy-eks.sh --tag v1
+
+# Frontend（dry-run: 既定）
+AWS_REGION=ap-northeast-1 \
+  S3_BUCKET=ops-platform-dev-portal-REPLACE_WITH_SUFFIX \
+  CLOUDFRONT_DISTRIBUTION_ID=REPLACE_WITH_DISTRIBUTION_ID \
+  scripts/deploy-frontend.sh
+```
+
+### 安全設計（dry-run 既定・run helper）
+
+- **既定は dry-run**。`--execute`（別名 `--no-dry-run`）を付けない限り、`run` ヘルパは
+  実コマンドを **echo で表示するだけ**で実行しません。dry-run 経路では docker /
+  AWS CLI / kubectl を呼びません。
+- **`--execute` 明示が必須**。実デプロイは `--execute` を付けたときのみ。
+- **App のみをデプロイ**。terraform apply/destroy は呼ばず、言及もコメントのみ。
+- **Secret 非埋め込み**。実 ARN・実アカウント ID・実ドメイン・実 Secret を含めません。
+
+### 検証
+
+`scripts/tests/test_deploy_scripts.py` は **スクリプトを実行しない**静的テストです
+（`bash -n` の構文チェックのみ）。存在・`set -euo pipefail`・`--help`・dry-run 既定・
+`--execute` 必須・非機微（ARN/12桁アカウントID/secret 非混入）・terraform apply/destroy
+非実行を検証します。`test_docs_consistency.py` は README / runbook / architecture /
+operation のドキュメント整合を検証します。
+
+```bash
+bash -n scripts/deploy-ecs.sh scripts/deploy-eks.sh scripts/deploy-frontend.sh
+python3 -m pytest scripts/tests -q
+```

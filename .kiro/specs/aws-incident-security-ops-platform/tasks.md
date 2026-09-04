@@ -252,7 +252,7 @@
 
 ### Phase 4: 運用・セキュリティ・デモ整備
 
-- [ ] 18. サンプルデータと監視・監査
+- [x] 18. サンプルデータと監視・監査
   - [x] 18.1 サンプルデータ投入スクリプトを作成する
     - `scripts/`: ダミーのアラーム/Finding イベント投入スクリプト（EventBridge/SQS）、非機微レポート・public_status_items のシードスクリプトを作成する
     - _Requirements: 6.1, 14.1, 14.2_
@@ -262,18 +262,19 @@
   - [x]* 18.3 監査ログ出力確認と監視構成のテストを作成する
     - 状態変更で audit_logs が出力されること（統合）、DLQ>0 Alarm 等の監視構成が存在することをスナップショット/スモークで確認する
     - _Requirements: 8.3, 18.1_
-    - eed scripts、dry-run既定、monitoring module、CloudWatch Alarms、SNS、A/B dashboard分離、audit_logs確認、36 passed / 0 skipped を実装・検証済みであることを追記する
+  - _Implemented in Task 18: seed scripts (alarm/finding EventBridge events, portal reports/status seed) with dry-run/print-only default and --execute gate; monitoring module (11 CloudWatch alarms for SQS DLQ>0/ECS/ALB/Lambda/Aurora, SNS topic wired to alarm_actions, A/B-separated dashboards); audit_logs coverage documented via existing Property 6 tests. monitoring+scripts 36 passed / 0 skipped, audit_logs 26 passed._
 
-- [ ] 19. App_Deploy スクリプトと運用ドキュメント
-  - [ ] 19.1 App_Deploy スクリプト（ECS/EKS/CloudFront）を作成する
+- [x] 19. App_Deploy スクリプトと運用ドキュメント
+  - [x] 19.1 App_Deploy スクリプト（ECS/EKS/CloudFront）を作成する
     - `scripts/deploy-ecs.sh`（build→ECR push→service update）、`scripts/deploy-eks.sh`（build→ECR push→`kubectl apply`）、`scripts/deploy-frontend.sh`（build→S3 sync→invalidation）を作成する（インフラ apply と分離）
     - _Requirements: 22.1, 22.2, 22.3, 22.4_
-  - [ ] 19.2 Runbook・デモシナリオ・アーキテクチャ図を作成する
+  - [x] 19.2 Runbook・デモシナリオ・アーキテクチャ図を作成する
     - `docs/runbook.md` 更新、デモシナリオ（`docs/operation.md` 追記）、アーキテクチャ図（`docs/architecture.md` の mermaid）を整備する
     - _Requirements: 26.1, 26.2, 26.3_
-  - [ ] 19.3 README を更新する（削除手順含む）
+  - [x] 19.3 README を更新する（削除手順含む）
     - 構築手順・削除（撤去）手順・注意点（ALB 公開範囲、コスト影響大リソースの停止）を最終化する
     - _Requirements: 26.1_
+  - _Implemented in Task 19: App_Deploy scripts (deploy-ecs.sh, deploy-eks.sh, deploy-frontend.sh) with set -euo pipefail, --help, required-env checks, dry-run/print-only default and --execute gate (App-only, no terraform); runbook (alarm/Finding/DLQ>0/Portal/A->B/rollback/teardown checks); demo scenario (docs/operation) with real seed/deploy commands; architecture mermaid (A->B one-way with B->A excluded, Infra_Pipeline vs App_Deploy separation, monitoring/SNS); top-level README (build order, teardown steps, cost/security notes, dev root unwired module table). 50 passed, 0 skipped._
 
 - [ ] 20. 最終 Checkpoint — 全体の検証
   - Ensure all tests pass, ask the user if questions arise.

@@ -53,6 +53,51 @@ flowchart TB
 
 > **重要**: A→B 連携の実行主体は MVP では **Cronjob_Summary（`monthly-summary-cronjob`）に限定**する。Backend_API から Portal_DB / Portal_Storage への直接書き込み経路は持たない。
 
+## A→B 一方向連携（B→A は排除）
+
+連携は **A→B の一方向のみ**。Product_B から Product_A への書き込み・参照経路は設計上持たない。
+
+```mermaid
+flowchart LR
+    subgraph A["Product_A"]
+        CS[Cronjob_Summary]
+    end
+    subgraph B["Product_B"]
+        PS[Portal_Storage reports/*]
+        RM[report_metadata]
+        PSI[public_status_items]
+    end
+    CS -->|reports/period/summary.json| PS
+    CS -->|upsert| RM
+    CS -->|upsert| PSI
+    B -.->|書き込み・参照なし（設計上排除）| A
+```
+
+> 点線は「存在しない経路」を示す。B→A の同期呼び出し・双方向連携・書き込み連携は非スコープ（Req 非スコープ）。連携データは非機微・ダミーのみ。
+
+## CI/CD（Infra_Pipeline）と App_Deploy の分離
+
+インフラ（terraform）とアプリ（コンテナ/静的配信）は独立してリリースする。App_Deploy は terraform を呼ばない（Req 22.1）。
+
+```mermaid
+flowchart TB
+    subgraph CICD["Infra_Pipeline（CI/CD）"]
+        FMT[terraform fmt] --> VAL[terraform validate] --> PLAN[terraform plan] --> APR[手動承認] --> APLY[terraform apply]
+    end
+    subgraph AppDeploy["App_Deploy（terraform を呼ばない）"]
+        E[deploy-ecs.sh<br/>build→ECR push→ECS update]
+        K[deploy-eks.sh<br/>build→ECR push→kubectl apply]
+        F[deploy-frontend.sh<br/>verify→S3 sync→CF invalidation]
+    end
+    subgraph MON["監視 / 通知"]
+        CW[CloudWatch Alarms<br/>DLQ>0 / ECS / ALB / Lambda / Aurora] --> SNS[SNS 通知]
+    end
+    APLY --> AppDeploy
+    AppDeploy --> MON
+```
+
+> App_Deploy スクリプトは既定 dry-run（`--execute` 明示時のみ実行）。インフラ変更は Infra_Pipeline の plan→承認→apply 経路で扱う。
+
 ## 分離の設計思想（なぜ統合しないか）
 
 Product_A は「状態を持ち処理を行う内部基盤」、Product_B は「静的・軽量・公開の閲覧ポータル」という性質の異なる 2 系統である。独立してビルド・デプロイ・スケール・障害対応できるよう疎結合とし、一方の障害が他方へ波及しないようにする。連携は A→B の一方向データ受け渡し（Req 14.3）に限定し、B→A の書き込みは設計上排除する。
