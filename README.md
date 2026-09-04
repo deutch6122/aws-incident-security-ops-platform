@@ -1,5 +1,7 @@
 # AWS Incident & Security Operations Platform
 
+![CI](https://github.com/deutch6122/aws-incident-security-ops-platform/actions/workflows/ci.yml/badge.svg)
+
 社内運用向け内部基盤（**Product_A**）と関係者向け公開ポータル（**Product_B**）を、AWS 上に疎結合で構築するポートフォリオ兼実務想定の成果物です。両者は単一システムへ統合せず、**A→B の一方向・非同期連携のみ**を許容します。
 
 - **Product_A（内部運用・処理基盤）**: ECS Fargate による同期 API（Backend_API / FastAPI）、EKS による非同期ワーカー・CronJob（Worker_Alarm / Worker_Finding / Cronjob_Summary）、Aurora PostgreSQL による永続化。Operator がインシデント・アラーム・セキュリティ Finding・対応履歴・月次集計を管理します。
