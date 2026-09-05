@@ -239,3 +239,8 @@ python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機�
 | portal-frontend tests | `apps/portal-frontend/tests` | 静的ファイル解析のみ |
 | scripts tests + deploy syntax | `scripts/tests` + `bash -n scripts/deploy-*.sh` | deploy スクリプトは実行しない |
 | static safety scan | git 管理対象 | 無視対象ファイル（`.venv`/`.env`/`.terraform`/`*.tfstate`/`*.tfvars.local`/`*.pem`/credentials 等）が追跡されていないこと、実 Secret / AWS 認証情報 / 実 ARN 相当が混入していないことを確認。`REPLACE_WITH_*` や `${var.*}`、AWS 公式ドキュメント用のダミーアカウント ID（`123456789012` 等）は許容 |
+
+## 備考
+現在の状態:
+本リポジトリは、AWS Incident & Security Ops Platform の設計、Terraformモジュール、Bootstrap/CI/CD設計、アプリケーション部品を含みます。
+現時点の dev 環境では network/ecr/aurora のみ配線済みで、AWS上への完全な一気通貫構築は次フェーズで対応予定です。
