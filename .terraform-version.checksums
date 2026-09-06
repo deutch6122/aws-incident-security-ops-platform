@@ -1,0 +1,10 @@
+# Terraform binary version and official SHA256 checksums (single source of truth).
+# Version: 1.13.3
+# Source: https://releases.hashicorp.com/terraform/1.13.3/terraform_1.13.3_SHA256SUMS
+# Values are the official published SHA256 of the release zip archives, recorded
+# per OS/architecture. CI, CodeBuild, and local installs must verify the archive
+# against the checksum matching the runner's arch before extracting.
+#
+# Format: <sha256>  terraform_1.13.3_<os>_<arch>.zip
+71fc43d92ea09907be5d416d2405a6a9c2d1ceaed633f5e175c0af26e8c4b365  terraform_1.13.3_linux_amd64.zip
+8362e7284b38a1194884963deed83481696d468b42dab88052775f4280383584  terraform_1.13.3_darwin_arm64.zip

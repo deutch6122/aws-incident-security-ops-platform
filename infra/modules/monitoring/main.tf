@@ -1,11 +1,11 @@
 locals {
-  topic_name             = "${var.name_prefix}-alarms"
-  product_a_dashboard    = "${var.name_prefix}-product-a"
-  product_b_dashboard    = "${var.name_prefix}-product-b"
-  alarm_actions          = [aws_sns_topic.alarms.arn]
-  ok_actions             = [aws_sns_topic.alarms.arn]
-  evaluation_periods     = var.alarm_evaluation_periods
-  period_seconds         = var.alarm_period_seconds
+  topic_name          = "${var.name_prefix}-alarms"
+  product_a_dashboard = "${var.name_prefix}-product-a"
+  product_b_dashboard = "${var.name_prefix}-product-b"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  ok_actions          = [aws_sns_topic.alarms.arn]
+  evaluation_periods  = var.alarm_evaluation_periods
+  period_seconds      = var.alarm_period_seconds
 }
 
 # --------------------------------------------------------------------------- #
@@ -23,15 +23,37 @@ resource "aws_sns_topic" "alarms" {
   })
 }
 
+data "aws_ssm_parameter" "notification_endpoint" {
+  count = var.monitoring_enable_sns_subscription ? 1 : 0
+  name  = var.monitoring_notification_endpoint
+
+  lifecycle {
+    precondition {
+      condition = (
+        !var.monitoring_enable_sns_subscription ||
+        (var.monitoring_notification_endpoint != null && trimspace(var.monitoring_notification_endpoint) != "")
+      )
+      error_message = "monitoring_notification_endpoint must name an SSM parameter when the subscription is enabled."
+    }
+  }
+}
+
+resource "aws_sns_topic_subscription" "notification" {
+  count     = var.monitoring_enable_sns_subscription ? 1 : 0
+  topic_arn = aws_sns_topic.alarms.arn
+  protocol  = var.monitoring_notification_protocol
+  endpoint  = data.aws_ssm_parameter.notification_endpoint[0].value
+}
+
 # --------------------------------------------------------------------------- #
 # Product_A alarms                                                             #
 # --------------------------------------------------------------------------- #
 
 # SQS DLQ depth > 0: a message reached the dead-letter queue and needs triage
 # (Requirement 6.4 / DLQ 運用方針). Uses "notBreaching" so absent data is healthy.
-resource "aws_cloudwatch_metric_alarm" "sqs_dlq_messages_visible" {
-  alarm_name          = "${var.name_prefix}-sqs-dlq-messages-visible"
-  alarm_description   = "SQS DLQ has one or more visible messages; investigate poison events."
+resource "aws_cloudwatch_metric_alarm" "alarm_dlq_messages_visible" {
+  alarm_name          = "${var.name_prefix}-alarm-dlq-messages-visible"
+  alarm_description   = "Alarm-event SQS DLQ has one or more visible messages."
   namespace           = "AWS/SQS"
   metric_name         = "ApproximateNumberOfMessagesVisible"
   statistic           = "Maximum"
@@ -42,14 +64,40 @@ resource "aws_cloudwatch_metric_alarm" "sqs_dlq_messages_visible" {
   treat_missing_data  = "notBreaching"
 
   dimensions = {
-    QueueName = var.dlq_queue_name
+    QueueName = var.alarm_dlq_queue_name
   }
 
   alarm_actions = local.alarm_actions
   ok_actions    = local.ok_actions
 
   tags = merge(var.common_tags, {
-    Name      = "${var.name_prefix}-sqs-dlq-messages-visible"
+    Name      = "${var.name_prefix}-alarm-dlq-messages-visible"
+    Component = "monitoring"
+    Product   = "A"
+  })
+}
+
+resource "aws_cloudwatch_metric_alarm" "finding_dlq_messages_visible" {
+  alarm_name          = "${var.name_prefix}-finding-dlq-messages-visible"
+  alarm_description   = "Security-finding SQS DLQ has one or more visible messages."
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  statistic           = "Maximum"
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  evaluation_periods  = local.evaluation_periods
+  period              = local.period_seconds
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    QueueName = var.finding_dlq_queue_name
+  }
+
+  alarm_actions = local.alarm_actions
+  ok_actions    = local.ok_actions
+
+  tags = merge(var.common_tags, {
+    Name      = "${var.name_prefix}-finding-dlq-messages-visible"
     Component = "monitoring"
     Product   = "A"
   })
@@ -368,10 +416,12 @@ resource "aws_cloudwatch_dashboard" "product_a" {
       {
         type = "metric", x = 12, y = 6, width = 12, height = 6,
         properties = {
-          title  = "SQS DLQ depth"
+          title  = "SQS DLQ depth / EKS restarts"
           region = var.aws_region
           metrics = [
-            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", var.dlq_queue_name],
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", var.alarm_dlq_queue_name],
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", var.finding_dlq_queue_name],
+            ["ContainerInsights", "pod_number_of_container_restarts", "ClusterName", var.eks_cluster_name],
           ]
         }
       },

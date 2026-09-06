@@ -92,7 +92,7 @@ def test_report_metadata_is_registered() -> None:
     meta = reports.get(report.report_id)
     assert meta is not None
     assert meta["period"] == "202406"
-    assert meta["s3_key"] == "reports/202406/summary.json"
+    assert meta["s3_key"] == "reports/202406.json"
     assert "title" in meta
 
 
@@ -119,7 +119,7 @@ def test_report_file_placed_under_reports_prefix() -> None:
     assert storage.count() == 1
     key = report_s3_key("202406")
     assert key.startswith("reports/")
-    assert key == "reports/202406/summary.json"
+    assert key == "reports/202406.json"
     body = storage.get(key)
     assert body is not None
     parsed = json.loads(body.decode("utf-8"))
@@ -281,7 +281,7 @@ def test_linkage_with_moto_dynamodb_and_s3() -> None:
         meta = dynamodb.Table(targets.report_metadata_table).get_item(
             Key={"report_id": "summary-202406"}
         )["Item"]
-        assert meta["s3_key"] == "reports/202406/summary.json"
+        assert meta["s3_key"] == "reports/202406.json"
 
         status = dynamodb.Table(targets.public_status_items_table).get_item(
             Key={"status_id": public_status_id("202406")}

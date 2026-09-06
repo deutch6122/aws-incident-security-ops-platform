@@ -18,11 +18,6 @@ output "oac_id" {
   value       = aws_cloudfront_origin_access_control.s3.id
 }
 
-output "web_acl_arn" {
-  description = "ARN of the WAF Web ACL associated with the distribution."
-  value       = aws_wafv2_web_acl.this.arn
-}
-
 output "price_class" {
   description = "CloudFront price class in effect."
   value       = var.price_class

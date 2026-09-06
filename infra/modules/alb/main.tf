@@ -114,11 +114,9 @@ resource "aws_lb_target_group" "this" {
   })
 }
 
-# HTTPS (443) listener. It is created only when certificate_arn is provided; in
-# dev without a certificate the ALB must not serve traffic until one is issued.
+# HTTPS (443) listener. Always created: certificate_arn is a required input, so
+# there is no "no certificate" fallback. Forwards to the backend target group.
 resource "aws_lb_listener" "https" {
-  count = var.certificate_arn == null ? 0 : 1
-
   load_balancer_arn = aws_lb.this.arn
   port              = 443
   protocol          = "HTTPS"
@@ -136,18 +134,22 @@ resource "aws_lb_listener" "https" {
   })
 }
 
-# HTTP (80) listener. Created unconditionally for dev/MVP fallback when no ACM
-# certificate is available yet. In production, use HTTPS with a certificate.
+# HTTP (80) listener. Always created and always issues a 301 redirect to HTTPS
+# on port 443. It never forwards to the target group, so plaintext traffic is
+# never served by the backend.
 resource "aws_lb_listener" "http" {
-  count = 1
-
   load_balancer_arn = aws_lb.this.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.this.arn
+    type = "redirect"
+
+    redirect {
+      protocol    = "HTTPS"
+      port        = "443"
+      status_code = "HTTP_301"
+    }
   }
 
   tags = merge(var.common_tags, {

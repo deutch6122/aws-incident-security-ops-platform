@@ -3,8 +3,6 @@ locals {
   role_name      = "${var.name_prefix}-lambda-portal-role"
   log_group_name = "/aws/lambda/${var.name_prefix}-portal-api"
 
-  use_s3_package = length(trimspace(var.package_s3_bucket)) > 0 && length(trimspace(var.package_s3_key)) > 0
-
   # Read-only DynamoDB tables for the Portal_API (Product_B only). Includes each
   # base table plus its indexes (report_metadata has GSI gsi_period).
   read_table_arns = [
@@ -122,12 +120,13 @@ resource "aws_lambda_function" "portal" {
   memory_size   = var.memory_size
   timeout       = var.timeout
 
-  # The deployment package comes from either a local zip (package_filename) or
-  # S3 (package_s3_bucket/key). Task 15 supplies the real artifact; the defaults
-  # are placeholders so no real path is committed.
-  filename  = local.use_s3_package ? null : (length(trimspace(var.package_filename)) > 0 ? var.package_filename : null)
-  s3_bucket = local.use_s3_package ? var.package_s3_bucket : null
-  s3_key    = local.use_s3_package ? var.package_s3_key : null
+  # The immutable, versioned object and its digest are produced by the build
+  # pipeline. A local filename is intentionally unsupported so plan and apply
+  # cannot silently select different packages.
+  s3_bucket         = var.lambda_package_s3_bucket
+  s3_key            = var.lambda_package_s3_key
+  s3_object_version = var.lambda_package_s3_object_version
+  source_code_hash  = var.lambda_source_code_hash
 
   logging_config {
     log_format = "Text"

@@ -19,12 +19,13 @@ output "isolated_db_subnet_ids" {
 }
 
 output "security_group_ids" {
-  description = "Security-group IDs for downstream ALB, ECS, EKS, and database modules."
+  description = "Security-group IDs for downstream ALB, ECS, EKS, database, and migration modules."
   value = {
-    alb = aws_security_group.alb.id
-    ecs = aws_security_group.ecs.id
-    eks = aws_security_group.eks.id
-    db  = aws_security_group.db.id
+    alb       = aws_security_group.alb.id
+    ecs       = aws_security_group.ecs.id
+    eks       = aws_security_group.eks.id
+    db        = aws_security_group.db.id
+    migration = aws_security_group.migration.id
   }
 }
 

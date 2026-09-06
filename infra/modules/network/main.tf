@@ -218,6 +218,29 @@ resource "aws_security_group" "db" {
   })
 }
 
+# Migration security group (Task 6). Owned solely by the network module. The
+# one-off DB migration ECS Fargate task runs in the private application subnets.
+# Its allowed traffic is:
+#   - no inbound;
+#   - egress to the database security group on TCP 5432 (application traffic);
+#   - egress to required AWS services on TCP 443 for task startup (ECR API/DKR,
+#     ECR image layers via S3), Secrets Manager, and CloudWatch Logs, satisfied
+#     over either the NAT path (external_https_egress_cidrs) or the VPC endpoint
+#     path (VPC endpoint security group), matching the existing ECS/EKS pattern.
+# No other traffic is permitted, and it has no public ingress.
+resource "aws_security_group" "migration" {
+  name        = "${var.name_prefix}-migration-sg"
+  description = "One-off DB migration task; TCP 5432 egress to the DB and TCP 443 egress to required AWS services (NAT or VPC endpoint). No inbound; no public ingress."
+  vpc_id      = aws_vpc.this.id
+  ingress     = []
+  egress      = []
+
+  tags = merge(var.common_tags, {
+    Name = "${var.name_prefix}-migration-sg"
+    Role = "migration"
+  })
+}
+
 resource "aws_vpc_security_group_ingress_rule" "alb_https" {
   for_each = toset(var.allowed_alb_ingress_cidrs)
 
@@ -288,6 +311,44 @@ resource "aws_vpc_security_group_ingress_rule" "db_from_eks" {
   to_port                      = 5432
 
   tags = merge(var.common_tags, { Name = "${var.name_prefix}-db-from-eks" })
+}
+
+# Migration task egress to the database (PostgreSQL only), and the matching DB
+# ingress from the migration security group. Private subnet reachability only.
+resource "aws_vpc_security_group_egress_rule" "migration_to_db" {
+  security_group_id            = aws_security_group.migration.id
+  referenced_security_group_id = aws_security_group.db.id
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
+
+  tags = merge(var.common_tags, { Name = "${var.name_prefix}-migration-to-db" })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "db_from_migration" {
+  security_group_id            = aws_security_group.db.id
+  referenced_security_group_id = aws_security_group.migration.id
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
+
+  tags = merge(var.common_tags, { Name = "${var.name_prefix}-db-from-migration" })
+}
+
+# NAT path: migration task egress to required AWS services on HTTPS. Uses the
+# same variable and pattern as the ECS/EKS external HTTPS egress rules so ECR
+# API/DKR, ECR image layers (S3), Secrets Manager, and CloudWatch Logs are
+# reachable when NAT is used. No public ingress is added to the migration SG.
+resource "aws_vpc_security_group_egress_rule" "migration_https_external" {
+  for_each = toset(var.external_https_egress_cidrs)
+
+  security_group_id = aws_security_group.migration.id
+  cidr_ipv4         = each.value
+  from_port         = 443
+  ip_protocol       = "tcp"
+  to_port           = 443
+
+  tags = merge(var.common_tags, { Name = "${var.name_prefix}-migration-https-egress" })
 }
 
 resource "aws_vpc_security_group_egress_rule" "ecs_https_external" {
@@ -372,6 +433,18 @@ resource "aws_vpc_security_group_ingress_rule" "vpc_endpoint_from_eks" {
   tags = merge(var.common_tags, { Name = "${var.name_prefix}-vpce-from-eks" })
 }
 
+resource "aws_vpc_security_group_ingress_rule" "vpc_endpoint_from_migration" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  security_group_id            = aws_security_group.vpc_endpoint[0].id
+  referenced_security_group_id = aws_security_group.migration.id
+  from_port                    = 443
+  ip_protocol                  = "tcp"
+  to_port                      = 443
+
+  tags = merge(var.common_tags, { Name = "${var.name_prefix}-vpce-from-migration" })
+}
+
 resource "aws_vpc_security_group_egress_rule" "ecs_to_vpc_endpoint" {
   count = var.enable_vpc_endpoints ? 1 : 0
 
@@ -394,6 +467,21 @@ resource "aws_vpc_security_group_egress_rule" "eks_to_vpc_endpoint" {
   to_port                      = 443
 
   tags = merge(var.common_tags, { Name = "${var.name_prefix}-eks-to-vpce" })
+}
+
+# VPC endpoint path: migration task egress to the interface endpoints (ECR
+# API/DKR, Secrets Manager, CloudWatch Logs) on HTTPS. ECR image layers are
+# fetched through the existing S3 gateway endpoint on the private route table.
+resource "aws_vpc_security_group_egress_rule" "migration_to_vpc_endpoint" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  security_group_id            = aws_security_group.migration.id
+  referenced_security_group_id = aws_security_group.vpc_endpoint[0].id
+  from_port                    = 443
+  ip_protocol                  = "tcp"
+  to_port                      = 443
+
+  tags = merge(var.common_tags, { Name = "${var.name_prefix}-migration-to-vpce" })
 }
 
 resource "aws_vpc_endpoint" "interface" {

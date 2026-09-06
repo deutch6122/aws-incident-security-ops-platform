@@ -20,17 +20,6 @@ variable "common_tags" {
   }
 }
 
-variable "queue_name_suffix" {
-  description = "Suffix appended after name_prefix for the main queue and DLQ names."
-  type        = string
-  default     = "events"
-
-  validation {
-    condition     = can(regex("^[a-z0-9]+(-[a-z0-9]+)*$", var.queue_name_suffix)) && length(var.queue_name_suffix) <= 40
-    error_message = "queue_name_suffix must use lowercase alphanumeric segments separated by single hyphens and be at most 40 characters."
-  }
-}
-
 variable "visibility_timeout_seconds" {
   description = "Main queue visibility timeout. Must exceed the worker per-message handling time so redelivery does not race a still-running handler."
   type        = number
@@ -53,14 +42,14 @@ variable "message_retention_seconds" {
   }
 }
 
-variable "max_receive_count" {
-  description = "Number of receive attempts before a message is moved to the DLQ (redrive maxReceiveCount)."
+variable "sqs_max_receive_count" {
+  description = "Number of receive attempts before a message is moved to its DLQ (redrive maxReceiveCount). Applied identically to both the alarm and finding systems."
   type        = number
   default     = 5
 
   validation {
-    condition     = var.max_receive_count >= 1 && var.max_receive_count <= 1000
-    error_message = "max_receive_count must be between 1 and 1000."
+    condition     = var.sqs_max_receive_count >= 1 && var.sqs_max_receive_count <= 1000
+    error_message = "sqs_max_receive_count must be between 1 and 1000."
   }
 }
 
@@ -76,7 +65,7 @@ variable "dlq_message_retention_seconds" {
 }
 
 variable "receive_wait_time_seconds" {
-  description = "Long-poll wait time on the main queue (0-20)."
+  description = "Long-poll wait time on the main queues (0-20)."
   type        = number
   default     = 20
 
@@ -87,20 +76,40 @@ variable "receive_wait_time_seconds" {
 }
 
 variable "sqs_managed_sse" {
-  description = "Enable SSE-SQS (SQS-managed server-side encryption) on the main queue and DLQ. No customer key material is referenced."
+  description = "Enable SSE-SQS (SQS-managed server-side encryption) on every queue and DLQ. No customer key material is referenced."
   type        = bool
   default     = true
 }
 
-variable "eventbridge_event_pattern" {
-  description = "EventBridge rule event pattern used to route sample events to the queue. Defaults to a source-based pattern for the platform sample events."
-  type        = any
-  default = {
-    source = ["ops-platform.sample"]
-  }
+variable "event_source" {
+  description = "EventBridge event pattern source value. Matches the seed script source so injected sample events are routed."
+  type        = string
+  default     = "ops-platform.sample"
 
   validation {
-    condition     = length(keys(var.eventbridge_event_pattern)) > 0
-    error_message = "eventbridge_event_pattern must contain at least one matching key (for example source or detail-type)."
+    condition     = length(trimspace(var.event_source)) > 0
+    error_message = "event_source must be a non-empty string."
+  }
+}
+
+variable "alarm_event_detail_types" {
+  description = "EventBridge detail-type values that route to the alarm system queue. Defaults to AlarmEvent."
+  type        = list(string)
+  default     = ["AlarmEvent"]
+
+  validation {
+    condition     = length(var.alarm_event_detail_types) > 0 && alltrue([for dt in var.alarm_event_detail_types : length(trimspace(dt)) > 0])
+    error_message = "alarm_event_detail_types must contain at least one non-empty detail-type."
+  }
+}
+
+variable "finding_event_detail_types" {
+  description = "EventBridge detail-type values that route to the finding system queue. Defaults to SecurityFinding."
+  type        = list(string)
+  default     = ["SecurityFinding"]
+
+  validation {
+    condition     = length(var.finding_event_detail_types) > 0 && alltrue([for dt in var.finding_event_detail_types : length(trimspace(dt)) > 0])
+    error_message = "finding_event_detail_types must contain at least one non-empty detail-type."
   }
 }

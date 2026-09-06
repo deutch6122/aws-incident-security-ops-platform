@@ -32,14 +32,24 @@ variable "s3_origin_domain_name" {
   }
 }
 
-# API Gateway origin domain for the /api/* behavior. Task 14 finalises the API
-# Gateway; until then the dev root passes the apigateway module output. The
-# default is an empty placeholder for validation only - no real domain is
-# committed.
 variable "api_gateway_origin_domain" {
-  description = "Domain name of the API Gateway custom origin serving /api/*. Placeholder empty string until wired to the apigateway module (Task 14)."
+  description = "Domain name of the API Gateway custom origin serving /api/*, without a URL scheme."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = length(trimspace(var.api_gateway_origin_domain)) > 0 && !can(regex("^https?://", var.api_gateway_origin_domain))
+    error_message = "api_gateway_origin_domain must be a non-empty host name without http:// or https://."
+  }
+}
+
+variable "web_acl_arn" {
+  description = "ARN of the us-east-1 CLOUDFRONT-scope WAF Web ACL."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.web_acl_arn)) > 0
+    error_message = "web_acl_arn must be set from the WAF module web_acl_arn output."
+  }
 }
 
 variable "price_class" {
@@ -50,16 +60,5 @@ variable "price_class" {
   validation {
     condition     = contains(["PriceClass_100", "PriceClass_200", "PriceClass_All"], var.price_class)
     error_message = "price_class must be PriceClass_100, PriceClass_200, or PriceClass_All."
-  }
-}
-
-variable "waf_rate_limit" {
-  description = "Requests per 5-minute window per source IP before the WAF rate-based rule blocks (Requirement 13.3)."
-  type        = number
-  default     = 2000
-
-  validation {
-    condition     = var.waf_rate_limit >= 100 && var.waf_rate_limit <= 2000000000
-    error_message = "waf_rate_limit must be between 100 and 2000000000 (AWS WAFv2 limits)."
   }
 }

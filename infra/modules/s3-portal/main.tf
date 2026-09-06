@@ -1,9 +1,29 @@
+# Bucket naming: real values are never embedded. The name is derived from the
+# name_prefix, the fixed purpose "portal-storage", the current account id (from a
+# data source), and the region. The suffix "<account-id>-<region>" is always
+# appended in full to keep names globally unique; only the STEM is deterministically
+# truncated so the whole name stays within the 63-character S3 limit.
+data "aws_caller_identity" "current" {}
+
 locals {
-  bucket_name = "${var.name_prefix}-portal-storage"
+  bucket_suffix   = "${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  bucket_stem_src = "${var.name_prefix}-portal-storage"
+  # Max stem length = 63 - 1 (the hyphen joining stem and suffix) - length(suffix).
+  bucket_stem_max = 63 - 1 - length(local.bucket_suffix)
+  # Truncate the stem (never the suffix) and strip any trailing hyphen created by
+  # the cut so the join does not produce a double hyphen or a leading/trailing dash.
+  bucket_stem = trimsuffix(substr(local.bucket_stem_src, 0, max(local.bucket_stem_max, 0)), "-")
+  bucket_name = "${local.bucket_stem}-${local.bucket_suffix}"
 }
 
 # Portal_Storage: static site + monthly report files for Product_B. Objects are
 # served only through CloudFront using OAC; the bucket is never public.
+#
+# OWNERSHIP BOUNDARY: this module owns the S3 bucket foundation ONLY. The
+# CloudFront distribution is created in Task 22, and the OAC bucket policy is
+# owned by the dev root in Task 27 (so that s3-portal and cloudfront do not form
+# a circular dependency). This module therefore creates NO aws_s3_bucket_policy
+# and takes NO cloudfront_distribution_arn input.
 #
 # SEPARATION NOTE: this bucket belongs to Product_B. It has no dependency on and
 # no write path into Product_A. Product_A's Cronjob_Summary places report files
@@ -21,7 +41,8 @@ resource "aws_s3_bucket" "portal" {
 }
 
 # Enforce bucket-owner ownership so object ACLs are disabled entirely; access is
-# governed only by the bucket policy (OAC), never by object/bucket ACLs.
+# governed only by the bucket policy (owned by the dev root, Task 27), never by
+# object/bucket ACLs.
 resource "aws_s3_bucket_ownership_controls" "portal" {
   bucket = aws_s3_bucket.portal.id
 
@@ -59,38 +80,4 @@ resource "aws_s3_bucket_versioning" "portal" {
   versioning_configuration {
     status = "Enabled"
   }
-}
-
-# OAC-only bucket policy: allow s3:GetObject solely to the CloudFront service
-# principal, and only when the request originates from this specific
-# distribution (aws:SourceArn condition). Any request that is not the OAC of the
-# configured distribution - including direct public requests - is denied because
-# it never matches this Allow (Requirement 12.3). No public "*" principal exists.
-data "aws_iam_policy_document" "portal" {
-  statement {
-    sid     = "AllowCloudFrontOACRead"
-    effect  = "Allow"
-    actions = ["s3:GetObject"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-
-    resources = ["${aws_s3_bucket.portal.arn}/*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = [var.cloudfront_distribution_arn]
-    }
-  }
-}
-
-resource "aws_s3_bucket_policy" "portal" {
-  bucket = aws_s3_bucket.portal.id
-  policy = data.aws_iam_policy_document.portal.json
-
-  # Ensure the public access block is in place before the policy is attached.
-  depends_on = [aws_s3_bucket_public_access_block.portal]
 }

@@ -70,11 +70,11 @@ resource "aws_lambda_permission" "apigw_invoke" {
 
 resource "aws_apigatewayv2_stage" "this" {
   api_id      = aws_apigatewayv2_api.this.id
-  name        = var.stage_name
+  name        = "$default"
   auto_deploy = true
 
   tags = merge(var.common_tags, {
-    Name      = "${local.api_name}-${var.stage_name}"
+    Name      = "${local.api_name}-default"
     Component = "apigateway"
     Role      = "portal-api-stage"
   })

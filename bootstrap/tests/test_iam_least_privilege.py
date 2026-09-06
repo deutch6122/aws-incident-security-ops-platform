@@ -129,9 +129,38 @@ def test_passrole_has_passedtoservice_condition():
     assert re.search(r'test\s*=\s*"StringEquals"', block), (
         "iam:PassedToService condition が StringEquals になっていない"
     )
-    # 想定サービスが列挙されていること（過剰でない範囲）。
-    for svc in ["ecs-tasks.amazonaws.com", "eks.amazonaws.com", "lambda.amazonaws.com"]:
-        assert svc in block, f"iam:PassedToService に {svc} が含まれていない"
+    assert 'values   = ["ecs-tasks.amazonaws.com"]' in block or (
+        'values = ["ecs-tasks.amazonaws.com"]' in block
+    )
+    for forbidden_service in (
+        "eks.amazonaws.com",
+        "eks-fargate-pods.amazonaws.com",
+        "lambda.amazonaws.com",
+        "codebuild.amazonaws.com",
+    ):
+        assert forbidden_service not in block
+
+
+def test_passrole_allowlist_contains_exactly_four_task_roles():
+    code = read_tf("iam.tf")
+    match = re.search(
+        r'sid\s*=\s*"IAMPassRoleScoped"(.*?)\n  \}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert match
+    block = match.group(1)
+    expected_suffixes = (
+        "-ecs-task-execution-role",
+        "-ecs-task-role",
+        "-migration-execution-role",
+        "-migration-task-role",
+    )
+    for suffix in expected_suffixes:
+        assert block.count(suffix) == 1
+    assert block.count(":role/") == 4
+    assert "role/${local.name_prefix}-*" not in block
+    assert "data.aws_partition.current.partition" in block
 
 
 def test_codebuild_can_assume_terraform_exec():

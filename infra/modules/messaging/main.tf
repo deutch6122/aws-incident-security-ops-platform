@@ -1,84 +1,118 @@
+# Two independent messaging systems: "alarm" and "finding". Each system owns its
+# own EventBridge rule + Standard SQS queue + dedicated DLQ + target + queue
+# policy + DLQ redrive-allow policy. The two systems never reference each other's
+# queues (Requirement 6.1, 6.2). A single local map drives every resource via
+# for_each so the two systems share one definition without duplication.
 locals {
-  queue_name = "${var.name_prefix}-${var.queue_name_suffix}"
-  dlq_name   = "${var.name_prefix}-${var.queue_name_suffix}-dlq"
+  systems = {
+    alarm = {
+      role         = "alarm"
+      detail_types = var.alarm_event_detail_types
+    }
+    finding = {
+      role         = "finding"
+      detail_types = var.finding_event_detail_types
+    }
+  }
 }
 
-# Dead-letter queue. Messages that exceed max_receive_count on the main queue
-# are moved here by the SQS redrive policy so a poison message cannot be
-# redelivered forever (Requirement 6.4). SSE-SQS encrypts messages at rest; no
-# customer key material or secret is referenced.
+# Per-system dead-letter queue. Messages that exceed sqs_max_receive_count on the
+# system's main queue are moved here by that queue's redrive policy so a poison
+# message cannot be redelivered forever (Requirement 6.4). SSE-SQS encrypts
+# messages at rest; no customer key material or secret is referenced. DLQs are
+# separated per system.
 resource "aws_sqs_queue" "dlq" {
-  name                      = local.dlq_name
+  for_each = local.systems
+
+  name                      = "${var.name_prefix}-${each.value.role}-dlq"
   message_retention_seconds = var.dlq_message_retention_seconds
   sqs_managed_sse_enabled   = var.sqs_managed_sse
 
   tags = merge(var.common_tags, {
-    Name      = local.dlq_name
+    Name      = "${var.name_prefix}-${each.value.role}-dlq"
     Component = "messaging"
-    Role      = "dlq"
+    Role      = "${each.value.role}-dlq"
   })
 }
 
-# Main Standard (not FIFO) queue. At-least-once delivery is expected; the worker
-# deletes a message only after its handler succeeds. redrive_policy points at
-# the DLQ so messages exceeding max_receive_count are moved off the main queue
-# (Requirement 6.4).
+# Per-system main Standard (not FIFO) queue. At-least-once delivery is expected;
+# the worker deletes a message only after its handler succeeds. redrive_policy
+# points at the SAME system's DLQ so messages exceeding sqs_max_receive_count are
+# moved off the main queue (Requirement 6.4).
 resource "aws_sqs_queue" "main" {
-  name                       = local.queue_name
+  for_each = local.systems
+
+  name                       = "${var.name_prefix}-${each.value.role}"
   visibility_timeout_seconds = var.visibility_timeout_seconds
   message_retention_seconds  = var.message_retention_seconds
   receive_wait_time_seconds  = var.receive_wait_time_seconds
   sqs_managed_sse_enabled    = var.sqs_managed_sse
 
   redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.dlq.arn
-    maxReceiveCount     = var.max_receive_count
+    deadLetterTargetArn = aws_sqs_queue.dlq[each.key].arn
+    maxReceiveCount     = var.sqs_max_receive_count
   })
 
   tags = merge(var.common_tags, {
-    Name      = local.queue_name
+    Name      = "${var.name_prefix}-${each.value.role}"
     Component = "messaging"
-    Role      = "main-queue"
+    Role      = "${each.value.role}-queue"
   })
 }
 
-# Restrict the DLQ so that only the main queue may redrive into it. This is the
-# minimum-privilege complement to the main queue's redrive_policy.
+# Restrict each DLQ so that only its own system's main queue may redrive into it.
+# This is the minimum-privilege complement to the main queue's redrive_policy and
+# keeps the two systems' DLQs isolated.
 resource "aws_sqs_queue_redrive_allow_policy" "dlq" {
-  queue_url = aws_sqs_queue.dlq.id
+  for_each = local.systems
+
+  queue_url = aws_sqs_queue.dlq[each.key].id
 
   redrive_allow_policy = jsonencode({
     redrivePermission = "byQueue"
-    sourceQueueArns   = [aws_sqs_queue.main.arn]
+    sourceQueueArns   = [aws_sqs_queue.main[each.key].arn]
   })
 }
 
-# EventBridge rule for injecting sample events (Requirement 6.1). The event
-# pattern is variable-driven; the default matches the platform sample source.
+# Per-system EventBridge rule (Requirement 6.1). The event pattern matches the
+# shared event source and only this system's detail-type values, so alarm and
+# finding events are routed to different queues.
 resource "aws_cloudwatch_event_rule" "this" {
-  name          = "${var.name_prefix}-${var.queue_name_suffix}-rule"
-  description   = "Routes sample platform events to the ${local.queue_name} SQS queue."
-  event_pattern = jsonencode(var.eventbridge_event_pattern)
+  for_each = local.systems
+
+  name        = "${var.name_prefix}-${each.value.role}-rule"
+  description = "Routes ${each.value.role} sample platform events to the ${var.name_prefix}-${each.value.role} SQS queue."
+
+  event_pattern = jsonencode({
+    source        = [var.event_source]
+    "detail-type" = each.value.detail_types
+  })
 
   tags = merge(var.common_tags, {
-    Name      = "${var.name_prefix}-${var.queue_name_suffix}-rule"
+    Name      = "${var.name_prefix}-${each.value.role}-rule"
     Component = "messaging"
-    Role      = "event-rule"
+    Role      = "${each.value.role}-event-rule"
   })
 }
 
-# Deliver matched events straight to the main SQS queue (no input transformer;
-# the raw event body is what the worker parses).
+# Deliver matched events straight to the SAME system's SQS queue (no input
+# transformer; the raw event body is what the worker parses). Each rule targets
+# only its own queue; there is no cross-system target.
 resource "aws_cloudwatch_event_target" "this" {
-  rule      = aws_cloudwatch_event_rule.this.name
-  target_id = "${var.name_prefix}-${var.queue_name_suffix}-sqs"
-  arn       = aws_sqs_queue.main.arn
+  for_each = local.systems
+
+  rule      = aws_cloudwatch_event_rule.this[each.key].name
+  target_id = "${var.name_prefix}-${each.value.role}-sqs"
+  arn       = aws_sqs_queue.main[each.key].arn
 }
 
-# Queue policy: allow only the EventBridge service to SendMessage, and only for
-# this specific rule (aws:SourceArn condition). This is minimum privilege for
-# the EventBridge -> SQS delivery path.
+# Per-system queue policy: allow only the EventBridge service to SendMessage, and
+# only for THIS system's rule (aws:SourceArn condition). This is minimum
+# privilege for the EventBridge -> SQS delivery path and prevents the other
+# system's rule from writing here.
 data "aws_iam_policy_document" "queue_policy" {
+  for_each = local.systems
+
   statement {
     sid     = "AllowEventBridgeSendMessage"
     effect  = "Allow"
@@ -89,17 +123,19 @@ data "aws_iam_policy_document" "queue_policy" {
       identifiers = ["events.amazonaws.com"]
     }
 
-    resources = [aws_sqs_queue.main.arn]
+    resources = [aws_sqs_queue.main[each.key].arn]
 
     condition {
       test     = "ArnEquals"
       variable = "aws:SourceArn"
-      values   = [aws_cloudwatch_event_rule.this.arn]
+      values   = [aws_cloudwatch_event_rule.this[each.key].arn]
     }
   }
 }
 
 resource "aws_sqs_queue_policy" "this" {
-  queue_url = aws_sqs_queue.main.id
-  policy    = data.aws_iam_policy_document.queue_policy.json
+  for_each = local.systems
+
+  queue_url = aws_sqs_queue.main[each.key].id
+  policy    = data.aws_iam_policy_document.queue_policy[each.key].json
 }

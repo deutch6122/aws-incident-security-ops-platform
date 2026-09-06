@@ -1,0 +1,13 @@
+{
+  "feature": "dev-full-stack-wiring",
+  "module": "iam",
+  "description": "Registry of the only Actions permitted to use Resource = \"*\" because AWS provides no resource-level scoping for them. Each is constrained by an aws:RequestedRegion condition.",
+  "exceptions": [
+    {
+      "action": "ecr:GetAuthorizationToken",
+      "reason": "ECR authorization token is account/region scoped and does not support resource-level ARNs",
+      "conditions": { "aws:RequestedRegion": "ap-northeast-1" },
+      "roles": ["ecs-task-execution-role", "migration-execution-role"]
+    }
+  ]
+}

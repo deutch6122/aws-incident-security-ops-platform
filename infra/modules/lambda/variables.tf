@@ -37,26 +37,45 @@ variable "handler" {
   default     = "app.handler.lambda_handler"
 }
 
-# Deployment package source. Task 15 produces the real artifact; until then this
-# is a placeholder path so the module validates without embedding a real path.
-variable "package_filename" {
-  description = "Path to the Lambda deployment package (.zip). Placeholder until Task 15 builds the Portal_API artifact."
+variable "lambda_package_s3_bucket" {
+  description = "Versioned artifact bucket holding the Portal_API deployment package."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = length(trimspace(var.lambda_package_s3_bucket)) > 0
+    error_message = "lambda_package_s3_bucket must be a non-empty bucket name."
+  }
 }
 
-# Optional S3-based package source (alternative to package_filename). Left empty
-# by default; no real bucket/key is committed.
-variable "package_s3_bucket" {
-  description = "S3 bucket holding the Lambda deployment package (alternative to package_filename)."
+variable "lambda_package_s3_key" {
+  description = "Immutable S3 key in the form lambda/<commit-sha>/portal-api.zip."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = can(regex("^lambda/[0-9a-f]{7,64}/portal-api\\.zip$", var.lambda_package_s3_key))
+    error_message = "lambda_package_s3_key must match lambda/<7-64 lowercase hex commit-sha>/portal-api.zip."
+  }
 }
 
-variable "package_s3_key" {
-  description = "S3 key of the Lambda deployment package (alternative to package_filename)."
+variable "lambda_package_s3_object_version" {
+  description = "Version ID of the immutable Lambda package object."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = length(trimspace(var.lambda_package_s3_object_version)) > 0
+    error_message = "lambda_package_s3_object_version must be non-empty."
+  }
+}
+
+variable "lambda_source_code_hash" {
+  description = "Base64-encoded SHA-256 digest of the exact package object."
+  type        = string
+  sensitive   = false
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+/]{43}=$", var.lambda_source_code_hash))
+    error_message = "lambda_source_code_hash must be a base64-encoded SHA-256 digest."
+  }
 }
 
 variable "memory_size" {

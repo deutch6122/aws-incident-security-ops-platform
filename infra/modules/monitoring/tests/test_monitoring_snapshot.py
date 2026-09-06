@@ -55,17 +55,32 @@ def test_every_alarm_references_sns_topic_in_alarm_actions() -> None:
     for name, body in alarm_blocks:
         assert "alarm_actions = local.alarm_actions" in body, f"{name} missing SNS alarm_actions"
     # local.alarm_actions must be the SNS topic ARN.
-    assert "alarm_actions          = [aws_sns_topic.alarms.arn]" in MAIN
+    assert re.search(r"alarm_actions\s*=\s*\[aws_sns_topic\.alarms\.arn\]", MAIN)
 
 
 # --- DLQ > 0 alarm -----------------------------------------------------------
-def test_sqs_dlq_alarm_exists_greater_than_zero() -> None:
-    dlq = _resource_block("aws_cloudwatch_metric_alarm", "sqs_dlq_messages_visible")
-    assert 'metric_name         = "ApproximateNumberOfMessagesVisible"' in dlq
-    assert 'namespace           = "AWS/SQS"' in dlq
-    assert 'comparison_operator = "GreaterThanThreshold"' in dlq
-    assert "threshold           = 0" in dlq
-    assert "QueueName = var.dlq_queue_name" in dlq
+def test_two_sqs_dlq_alarms_exist_greater_than_zero() -> None:
+    for resource_name, queue_variable in (
+        ("alarm_dlq_messages_visible", "var.alarm_dlq_queue_name"),
+        ("finding_dlq_messages_visible", "var.finding_dlq_queue_name"),
+    ):
+        dlq = _resource_block("aws_cloudwatch_metric_alarm", resource_name)
+        assert 'metric_name         = "ApproximateNumberOfMessagesVisible"' in dlq
+        assert 'namespace           = "AWS/SQS"' in dlq
+        assert 'comparison_operator = "GreaterThanThreshold"' in dlq
+        assert "threshold           = 0" in dlq
+        assert f"QueueName = {queue_variable}" in dlq
+
+
+def test_optional_sns_subscription_reads_endpoint_from_ssm() -> None:
+    parameter = _resource_block("aws_ssm_parameter", "notification_endpoint", kind="data")
+    subscription = _resource_block("aws_sns_topic_subscription", "notification")
+    assert "var.monitoring_enable_sns_subscription ? 1 : 0" in parameter
+    assert "name  = var.monitoring_notification_endpoint" in parameter
+    assert "var.monitoring_enable_sns_subscription ? 1 : 0" in subscription
+    assert "data.aws_ssm_parameter.notification_endpoint[0].value" in subscription
+    assert "monitoring_notification_endpoint" not in OUTPUTS
+    assert "@" not in MAIN + VARIABLES + OUTPUTS
 
 
 # --- representative ECS / ALB / Lambda / Aurora alarms -----------------------
@@ -127,6 +142,8 @@ def test_product_a_dashboard_owns_ecs_alb_aurora_sqs() -> None:
     body = _dashboard_body("product_a")
     for ns in ("AWS/ECS", "AWS/ApplicationELB", "AWS/RDS", "AWS/SQS"):
         assert ns in body, f"Product_A dashboard should include {ns}"
+    assert "ContainerInsights" in body
+    assert "var.eks_cluster_name" in body
     # Responsibility separation: Product_A must NOT own the Product_B planes.
     for ns in ("AWS/Lambda", "AWS/CloudFront", "AWS/DynamoDB", "AWS/ApiGateway"):
         assert ns not in body, f"Product_A dashboard must not include {ns}"
@@ -147,7 +164,7 @@ def test_outputs_publish_sns_alarms_and_dashboards() -> None:
         "sns_topic_arn",
         "sns_topic_name",
         "alarm_names",
-        "dlq_alarm_name",
+        "dlq_alarm_names",
         "product_a_dashboard_name",
         "product_b_dashboard_name",
     ):

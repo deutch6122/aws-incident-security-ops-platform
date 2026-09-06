@@ -35,6 +35,39 @@ def test_artifact_bucket_versioning_and_encryption():
     cicd = read_tf("cicd.tf")
     assert "aws_s3_bucket_versioning" in cicd
     assert "aws_s3_bucket_server_side_encryption_configuration" in cicd
+    assert 'resource "aws_kms_key" "artifacts"' in cicd
+    assert 'sse_algorithm     = "aws:kms"' in cicd
+    assert "kms_master_key_id = aws_kms_key.artifacts.arn" in cicd
+    assert 'resource "aws_s3_bucket_lifecycle_configuration" "artifacts"' in cicd
+
+
+def test_pipeline_artifact_store_uses_the_artifact_kms_key():
+    cicd = read_tf("cicd.tf")
+    assert "encryption_key" in cicd
+    assert "id   = aws_kms_key.artifacts.arn" in cicd
+    assert 'type = "KMS"' in cicd
+
+
+def test_codebuild_receives_backend_artifact_and_ssm_parameter_names():
+    cicd = read_tf("cicd.tf")
+    for name in (
+        "TF_BACKEND_BUCKET",
+        "ARTIFACT_BUCKET",
+        "ARTIFACT_KMS_KEY_ARN",
+        "SSM_ALB_CERTIFICATE_ARN",
+        "SSM_EKS_OPERATOR_PRINCIPAL_ARN",
+        "SSM_MIGRATION_LAUNCHER_PRINCIPALS",
+        "SSM_EKS_PUBLIC_ACCESS_CIDRS",
+        "SSM_APPLICATION_IMAGE_TAG",
+        "SSM_ECS_DESIRED_COUNT",
+        "SSM_COGNITO_CALLBACK_URLS",
+        "SSM_COGNITO_LOGOUT_URLS",
+        "SSM_COGNITO_KEEP_LOCALHOST_URLS",
+        "SSM_MONITORING_ENABLE_SNS_SUBSCRIPTION",
+        "SSM_MONITORING_NOTIFICATION_PARAMETER_NAME",
+        "SSM_MONITORING_NOTIFICATION_PROTOCOL",
+    ):
+        assert f'name  = "{name}"' in cicd
 
 
 def test_codebuild_and_codepipeline_present():

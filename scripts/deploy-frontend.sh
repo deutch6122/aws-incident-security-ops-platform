@@ -33,6 +33,11 @@ Required environment variables:
   AWS_REGION                   AWS region (e.g. ap-northeast-1).
   S3_BUCKET                    Portal_Storage bucket name for the static site.
   CLOUDFRONT_DISTRIBUTION_ID   CloudFront distribution id to invalidate.
+  COGNITO_USER_POOL_ID         Terraform output: Cognito User Pool id.
+  COGNITO_APP_CLIENT_ID        Terraform output: public App Client id.
+  COGNITO_DOMAIN               Terraform output: Hosted UI domain (host only).
+  COGNITO_REDIRECT_URI         Registered HTTPS callback URI.
+  COGNITO_LOGOUT_URI           Registered HTTPS logout URI.
 
 Optional environment variables:
   FRONTEND_DIR                 Path to built static files
@@ -44,6 +49,11 @@ Examples:
   AWS_REGION=ap-northeast-1 \
     S3_BUCKET=ops-platform-dev-portal-REPLACE_WITH_SUFFIX \
     CLOUDFRONT_DISTRIBUTION_ID=REPLACE_WITH_DISTRIBUTION_ID \
+    COGNITO_USER_POOL_ID=<terraform-user-pool-id-output> \
+    COGNITO_APP_CLIENT_ID=<terraform-app-client-id-output> \
+    COGNITO_DOMAIN=<terraform-hosted-domain-output> \
+    COGNITO_REDIRECT_URI=https://portal.example/callback \
+    COGNITO_LOGOUT_URI=https://portal.example/ \
     scripts/deploy-frontend.sh
 
   # actually deploy (explicit opt-in)
@@ -81,7 +91,9 @@ require_env() {
   fi
 }
 
-require_env AWS_REGION S3_BUCKET CLOUDFRONT_DISTRIBUTION_ID
+require_env AWS_REGION S3_BUCKET CLOUDFRONT_DISTRIBUTION_ID \
+  COGNITO_USER_POOL_ID COGNITO_APP_CLIENT_ID COGNITO_DOMAIN \
+  COGNITO_REDIRECT_URI COGNITO_LOGOUT_URI
 
 # --- run helper: dry-run echoes, --execute runs -----------------------------
 # In dry-run the real command is ONLY printed (aws never invoked).
@@ -112,8 +124,42 @@ if [[ ! -f "${FRONTEND_DIR}/index.html" ]]; then
 fi
 echo "[info] verified static files under ${FRONTEND_DIR}"
 
+# Validate values before embedding them into JavaScript. The caller supplies
+# these non-secret values from approved Terraform outputs.
+if [[ ! "$COGNITO_USER_POOL_ID" =~ ^[A-Za-z0-9_-]+$ || \
+      ! "$COGNITO_APP_CLIENT_ID" =~ ^[A-Za-z0-9_-]+$ || \
+      ! "$COGNITO_DOMAIN" =~ ^[A-Za-z0-9.-]+$ || \
+      ! "$COGNITO_REDIRECT_URI" =~ ^https?://[^\"\\[:space:]]+$ || \
+      ! "$COGNITO_LOGOUT_URI" =~ ^https?://[^\"\\[:space:]]+$ ]]; then
+  echo "$SCRIPT_NAME: invalid Cognito configuration value." >&2
+  exit 1
+fi
+
+GENERATED_DIR="$(mktemp -d "${TMPDIR:-/tmp}/deploy-frontend.XXXXXX")"
+cleanup() { rm -rf "$GENERATED_DIR"; }
+trap cleanup EXIT
+cp -R "${FRONTEND_DIR}/." "$GENERATED_DIR/"
+cat > "$GENERATED_DIR/config.js" <<CONFIG
+window.PORTAL_CONFIG = {
+  USER_POOL_ID: "${COGNITO_USER_POOL_ID}",
+  APP_CLIENT_ID: "${COGNITO_APP_CLIENT_ID}",
+  REGION: "${AWS_REGION}",
+  COGNITO_DOMAIN: "${COGNITO_DOMAIN}",
+  API_BASE: "/api",
+  REDIRECT_URI: "${COGNITO_REDIRECT_URI}",
+  LOGOUT_URI: "${COGNITO_LOGOUT_URI}",
+  OAUTH_SCOPES: "openid email profile"
+};
+CONFIG
+
+if grep -REn '\$\{[A-Za-z_][A-Za-z0-9_]*\}|REPLACE_WITH_[A-Za-z0-9_]+' "$GENERATED_DIR" >&2; then
+  echo "$SCRIPT_NAME: unresolved placeholder found; frontend was not published." >&2
+  exit 1
+fi
+echo "[info] generated config.js and verified that no placeholders remain"
+
 # 2) aws s3 sync (upload static assets)
-run aws s3 sync "${FRONTEND_DIR}/" "s3://${S3_BUCKET}/" \
+run aws s3 sync "${GENERATED_DIR}/" "s3://${S3_BUCKET}/" \
   --region "${AWS_REGION}" \
   --delete
 

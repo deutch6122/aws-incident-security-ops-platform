@@ -21,6 +21,18 @@ resource "aws_s3_bucket" "artifacts" {
   }
 }
 
+resource "aws_kms_key" "artifacts" {
+  description             = "Encrypt CodePipeline plans and versioned Lambda packages"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+  tags                    = { Name = "${local.name_prefix}-cicd-artifacts" }
+}
+
+resource "aws_kms_alias" "artifacts" {
+  name          = "alias/${local.name_prefix}-cicd-artifacts"
+  target_key_id = aws_kms_key.artifacts.key_id
+}
+
 # バージョニング有効
 resource "aws_s3_bucket_versioning" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
@@ -30,15 +42,32 @@ resource "aws_s3_bucket_versioning" "artifacts" {
   }
 }
 
-# サーバーサイド暗号化（AES256）
+# サーバーサイド暗号化（SSE-KMS必須）
 resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.artifacts.arn
     }
     bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+  rule { object_ownership = "BucketOwnerEnforced" }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+  rule {
+    id     = "expire-pipeline-artifacts"
+    status = "Enabled"
+    filter {}
+    expiration { days = var.artifact_retention_days }
+    noncurrent_version_expiration { noncurrent_days = var.artifact_retention_days }
   }
 }
 
@@ -78,6 +107,66 @@ resource "aws_codebuild_project" "terraform" {
       value = aws_iam_role.terraform_exec.arn
     }
     environment_variable {
+      name  = "TF_BACKEND_BUCKET"
+      value = aws_s3_bucket.tfstate.bucket
+    }
+    environment_variable {
+      name  = "ARTIFACT_BUCKET"
+      value = aws_s3_bucket.artifacts.bucket
+    }
+    environment_variable {
+      name  = "ARTIFACT_KMS_KEY_ARN"
+      value = aws_kms_key.artifacts.arn
+    }
+    environment_variable {
+      name  = "SSM_ALB_CERTIFICATE_ARN"
+      value = var.pipeline_alb_certificate_arn_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_EKS_OPERATOR_PRINCIPAL_ARN"
+      value = var.pipeline_eks_operator_principal_arn_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_MIGRATION_LAUNCHER_PRINCIPALS"
+      value = var.pipeline_migration_launcher_principals_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_EKS_PUBLIC_ACCESS_CIDRS"
+      value = var.pipeline_eks_public_access_cidrs_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_APPLICATION_IMAGE_TAG"
+      value = var.pipeline_application_image_tag_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_ECS_DESIRED_COUNT"
+      value = var.pipeline_ecs_desired_count_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_COGNITO_CALLBACK_URLS"
+      value = var.pipeline_cognito_callback_urls_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_COGNITO_LOGOUT_URLS"
+      value = var.pipeline_cognito_logout_urls_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_COGNITO_KEEP_LOCALHOST_URLS"
+      value = var.pipeline_cognito_keep_localhost_urls_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_MONITORING_ENABLE_SNS_SUBSCRIPTION"
+      value = var.pipeline_monitoring_enable_sns_subscription_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_MONITORING_NOTIFICATION_PARAMETER_NAME"
+      value = var.pipeline_monitoring_notification_parameter_name_parameter_name
+    }
+    environment_variable {
+      name  = "SSM_MONITORING_NOTIFICATION_PROTOCOL"
+      value = var.pipeline_monitoring_notification_protocol_parameter_name
+    }
+    environment_variable {
       name  = "AWS_REGION"
       value = var.aws_region
     }
@@ -114,6 +203,10 @@ resource "aws_codepipeline" "infra" {
   artifact_store {
     type     = "S3"
     location = aws_s3_bucket.artifacts.bucket
+    encryption_key {
+      id   = aws_kms_key.artifacts.arn
+      type = "KMS"
+    }
   }
 
   # --- Source: main ブランチ（Req 21.2）------------------------------------
@@ -143,13 +236,12 @@ resource "aws_codepipeline" "infra" {
     name = "Fmt"
 
     action {
-      name             = "TerraformFmt"
-      category         = "Build"
-      owner            = "AWS"
-      provider         = "CodeBuild"
-      version          = "1"
-      input_artifacts  = ["source_output"]
-      output_artifacts = ["fmt_output"]
+      name            = "TerraformFmt"
+      category        = "Build"
+      owner           = "AWS"
+      provider        = "CodeBuild"
+      version         = "1"
+      input_artifacts = ["source_output"]
 
       configuration = {
         ProjectName = aws_codebuild_project.terraform.name
@@ -171,13 +263,12 @@ resource "aws_codepipeline" "infra" {
     name = "Validate"
 
     action {
-      name             = "TerraformValidate"
-      category         = "Build"
-      owner            = "AWS"
-      provider         = "CodeBuild"
-      version          = "1"
-      input_artifacts  = ["source_output"]
-      output_artifacts = ["validate_output"]
+      name            = "TerraformValidate"
+      category        = "Build"
+      owner           = "AWS"
+      provider        = "CodeBuild"
+      version         = "1"
+      input_artifacts = ["source_output"]
 
       configuration = {
         ProjectName = aws_codebuild_project.terraform.name
@@ -238,11 +329,11 @@ resource "aws_codepipeline" "infra" {
     name = "Apply"
 
     action {
-      name            = "TerraformApply"
-      category        = "Build"
-      owner           = "AWS"
-      provider        = "CodeBuild"
-      version         = "1"
+      name     = "TerraformApply"
+      category = "Build"
+      owner    = "AWS"
+      provider = "CodeBuild"
+      version  = "1"
       # source_output（コード一式）と plan_output（tfplan.binary）の両方を渡す。
       input_artifacts = ["source_output", "plan_output"]
 

@@ -17,6 +17,7 @@ README = REPO_ROOT / "README.md"
 RUNBOOK = REPO_ROOT / "docs" / "runbook" / "runbook.md"
 ARCH = REPO_ROOT / "docs" / "architecture" / "architecture-overview.md"
 OPERATION = REPO_ROOT / "docs" / "operation" / "operation.md"
+BUILD_PROCEDURE = REPO_ROOT / "docs" / "operation" / "aws-build-procedure.md"
 
 
 def _read(path: Path) -> str:
@@ -64,3 +65,31 @@ def test_operation_demo_scenario_present() -> None:
     text = _read(OPERATION)
     assert "seed_alarm_events" in text, "operation missing sample alarm seeding step"
     assert ("デモ" in text) or ("シナリオ" in text), "operation missing demo scenario"
+
+
+def test_build_procedure_records_category_c_as_pending() -> None:
+    text = _read(BUILD_PROCEDURE)
+    assert "### 付録A. Category C 保留検証一覧" in text
+    for requirement in (
+        "Req 5.3 / 5.5",
+        "Req 6.3 / 6.4 / 6.7",
+        "Req 8.4 / 8.5",
+        "Req 9.2",
+        "Req 10.4",
+        "Req 11.4",
+        "Req 13.7",
+        "Req 14.3 / 14.4",
+        "Req 15.3 / 16.4 / 17.2 / 18.2",
+        "Req 19.2",
+        "Req 20.4",
+        "Req 21.2",
+        "Req 22.4",
+        "Req 23.3 / 24.2 / 25.1 / 25.3 / 26.3",
+    ):
+        assert requirement in text, f"Category C appendix missing {requirement}"
+    assert "保留理由" in text
+    assert "必要環境" in text
+    assert "未検証の残存リスク" in text
+    assert "残存P0は0件" in text
+    assert "statically verified; real AWS plan, apply, and E2E are not performed" in text
+    assert "「AWS build is possible」という断定ではない" in text

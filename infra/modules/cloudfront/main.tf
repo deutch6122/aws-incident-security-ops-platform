@@ -15,79 +15,12 @@ resource "aws_cloudfront_origin_access_control" "s3" {
   signing_protocol                  = "sigv4"
 }
 
-# PROVIDER NOTE (WAF scope=CLOUDFRONT): a WAFv2 Web ACL with scope=CLOUDFRONT
-# MUST be created in us-east-1. The dev root is expected to pass a us-east-1
-# provider alias to this module (e.g. providers = { aws = aws.us_east_1 }) when
-# wiring Task 13.3. This module does not force an alias internally so it stays
-# composable; see README for the required wiring. Managed rule group + a
-# rate-based rule satisfy Requirement 13.2 and 13.3.
-resource "aws_wafv2_web_acl" "this" {
-  name        = "${var.name_prefix}-portal-web-acl"
-  description = "WAF for Portal_CDN: AWS managed common rules + rate-based rule."
-  scope       = "CLOUDFRONT"
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+  name = "Managed-CachingDisabled"
+}
 
-  default_action {
-    allow {}
-  }
-
-  # AWS Managed Rules: common rule set (Requirement 13.2).
-  rule {
-    name     = "AWSManagedRulesCommonRuleSet"
-    priority = 1
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesCommonRuleSet"
-        vendor_name = "AWS"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "${var.name_prefix}-portal-common-rules"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  # Rate-based rule: throttle a single source IP that exceeds the limit within a
-  # 5-minute window (Requirement 13.3).
-  rule {
-    name     = "RateLimitPerSourceIp"
-    priority = 2
-
-    action {
-      block {}
-    }
-
-    statement {
-      rate_based_statement {
-        limit              = var.waf_rate_limit
-        aggregate_key_type = "IP"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "${var.name_prefix}-portal-rate-limit"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  visibility_config {
-    cloudwatch_metrics_enabled = true
-    metric_name                = "${var.name_prefix}-portal-web-acl"
-    sampled_requests_enabled   = true
-  }
-
-  tags = merge(var.common_tags, {
-    Name      = "${var.name_prefix}-portal-web-acl"
-    Component = "cloudfront"
-    Role      = "waf"
-  })
+data "aws_cloudfront_origin_request_policy" "all_viewer_except_host_header" {
+  name = "Managed-AllViewerExceptHostHeader"
 }
 
 # Portal_CDN distribution: 2 origins.
@@ -104,7 +37,7 @@ resource "aws_cloudfront_distribution" "this" {
   is_ipv6_enabled = true
   comment         = "${var.name_prefix} Portal_CDN"
   price_class     = var.price_class
-  web_acl_id      = aws_wafv2_web_acl.this.arn
+  web_acl_id      = var.web_acl_arn
 
   # Origin 1: S3 via OAC.
   origin {
@@ -146,24 +79,13 @@ resource "aws_cloudfront_distribution" "this" {
   # /api/* -> API Gateway origin, HTTPS only (JWT-protected content is dynamic
   # and must not be cached by default).
   ordered_cache_behavior {
-    path_pattern           = "/api/*"
-    target_origin_id       = local.api_origin_id
-    viewer_protocol_policy = "https-only"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods         = ["GET", "HEAD"]
-    min_ttl                = 0
-    default_ttl            = 0
-    max_ttl                = 0
-
-    forwarded_values {
-      query_string = true
-
-      headers = ["Authorization"]
-
-      cookies {
-        forward = "none"
-      }
-    }
+    path_pattern             = "/api/*"
+    target_origin_id         = local.api_origin_id
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host_header.id
   }
 
   restrictions {

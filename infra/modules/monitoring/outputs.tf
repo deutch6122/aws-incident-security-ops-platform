@@ -11,7 +11,8 @@ output "sns_topic_name" {
 output "alarm_names" {
   description = "All CloudWatch alarm names created by this module (Product_A and Product_B)."
   value = [
-    aws_cloudwatch_metric_alarm.sqs_dlq_messages_visible.alarm_name,
+    aws_cloudwatch_metric_alarm.alarm_dlq_messages_visible.alarm_name,
+    aws_cloudwatch_metric_alarm.finding_dlq_messages_visible.alarm_name,
     aws_cloudwatch_metric_alarm.ecs_cpu_high.alarm_name,
     aws_cloudwatch_metric_alarm.ecs_memory_high.alarm_name,
     aws_cloudwatch_metric_alarm.ecs_running_tasks_low.alarm_name,
@@ -25,9 +26,12 @@ output "alarm_names" {
   ]
 }
 
-output "dlq_alarm_name" {
-  description = "Name of the SQS DLQ depth > 0 alarm."
-  value       = aws_cloudwatch_metric_alarm.sqs_dlq_messages_visible.alarm_name
+output "dlq_alarm_names" {
+  description = "Names of the alarm-event and security-finding DLQ depth alarms."
+  value = {
+    alarm   = aws_cloudwatch_metric_alarm.alarm_dlq_messages_visible.alarm_name
+    finding = aws_cloudwatch_metric_alarm.finding_dlq_messages_visible.alarm_name
+  }
 }
 
 output "product_a_dashboard_name" {

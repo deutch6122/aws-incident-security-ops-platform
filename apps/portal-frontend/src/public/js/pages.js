@@ -35,8 +35,30 @@
       return;
     }
     button.addEventListener("click", function () {
-      global.location.href = global.PortalAuth.hostedUiLoginUrl();
+      global.PortalAuth.beginLogin().catch(function (err) {
+        var message = qs("auth-message");
+        if (message) { message.textContent = "エラー: " + err.message; }
+      });
     });
+
+    var logout = qs("logout-button");
+    if (logout) {
+      logout.addEventListener("click", function () { global.PortalAuth.signOut(); });
+    }
+
+    var params = new global.URLSearchParams(global.location.search);
+    if (params.has("code") || params.has("error")) {
+      global.PortalAuth.handleCallback(global.location.search)
+        .then(function () {
+          var message = qs("auth-message");
+          if (message) { message.textContent = "ログインしました。"; }
+          global.history.replaceState({}, doc.title, global.location.pathname);
+        })
+        .catch(function (err) {
+          var message = qs("auth-message");
+          if (message) { message.textContent = "エラー: " + err.message; }
+        });
+    }
   }
 
   // --- status list page ----------------------------------------------------

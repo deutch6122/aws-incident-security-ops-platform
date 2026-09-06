@@ -1,4 +1,6 @@
 # ---------------------------------------------------------------------------
+
+data "aws_partition" "current" {}
 # IAM: terraform-exec role（最小権限を意識）+ CodeBuild / CodePipeline サービスロール
 # ---------------------------------------------------------------------------
 # 対応要件: Req 17.1, 17.2, 17.3, 21.1
@@ -503,7 +505,6 @@ data "aws_iam_policy_document" "terraform_exec" {
   # --- IAM（必要な範囲）------------------------------------------------------
   # Platform が作成するロール/ポリシー（命名 prefix）に限定。
   # 権限昇格を防ぐため account 全体の IAM 管理権限は付与しない。
-  # TODO: iam:PassRole は渡す先サービスを Condition(iam:PassedToService) で制限する。
   statement {
     sid    = "IAMManageScoped"
     effect = "Allow"
@@ -549,26 +550,23 @@ data "aws_iam_policy_document" "terraform_exec" {
       "iam:PassRole",
     ]
     resources = [
-      "arn:aws:iam::${local.account_id}:role/${local.name_prefix}-*",
+      "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-ecs-task-execution-role",
+      "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-ecs-task-role",
+      "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-migration-execution-role",
+      "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-migration-task-role",
     ]
-    # PassRole 先を本 Platform が実際に利用する AWS サービスに限定する（権限昇格の抑止）。
-    # 過剰付与を避けるため、Platform 構成に必要なサービスのみを列挙する。
+    # TerraformがECS task definitionへ設定する4 roleだけを渡せる。EKS、Lambda、
+    # CodeBuild、migration launcher自身はこのPassRole allowlistに含めない。
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
-      values = [
-        "ecs-tasks.amazonaws.com",
-        "eks.amazonaws.com",
-        "eks-fargate-pods.amazonaws.com",
-        "lambda.amazonaws.com",
-        "codebuild.amazonaws.com",
-      ]
+      values   = ["ecs-tasks.amazonaws.com"]
     }
   }
 }
 
 resource "aws_iam_policy" "terraform_exec" {
-  name        = "${local.name_prefix}-terraform-exec-policy"
+  name = "${local.name_prefix}-terraform-exec-policy"
   # 最小権限方針: 管理者相当の権限や Action/Resource 全許可ワイルドカードは使用しない。
   description = "Least-privilege(ish) policy for Terraform execution via CodeBuild (service-scoped, no full wildcard)."
   policy      = data.aws_iam_policy_document.terraform_exec.json
@@ -609,6 +607,19 @@ resource "aws_iam_role" "codebuild" {
 }
 
 data "aws_iam_policy_document" "codebuild" {
+  statement {
+    sid       = "ReadPipelineParameters"
+    effect    = "Allow"
+    actions   = ["ssm:GetParameter", "ssm:GetParameters"]
+    resources = ["arn:${data.aws_partition.current.partition}:ssm:${var.aws_region}:${local.account_id}:parameter/${var.project}/${var.env}/*"]
+  }
+
+  statement {
+    sid       = "UseArtifactKmsKey"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    resources = [aws_kms_key.artifacts.arn]
+  }
   # CodeBuild 自身のログ
   statement {
     sid    = "CodeBuildLogs"
@@ -702,6 +713,12 @@ resource "aws_iam_role" "codepipeline" {
 }
 
 data "aws_iam_policy_document" "codepipeline" {
+  statement {
+    sid       = "UseArtifactKmsKey"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    resources = [aws_kms_key.artifacts.arn]
+  }
   # artifact S3
   statement {
     sid    = "PipelineArtifacts"

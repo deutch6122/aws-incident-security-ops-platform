@@ -20,4 +20,17 @@ locals {
     for logical_name, suffix in var.resource_name_suffixes :
     logical_name => "${local.name_prefix}-${suffix}"
   }
+
+  application_images = {
+    backend   = "${module.ecr.repository_urls["backend-api"]}:${var.application_image_tag}"
+    migration = "${module.ecr.repository_urls["db-migration"]}:${var.application_image_tag}"
+  }
+
+  alb_access_logs_suffix   = "${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  alb_access_logs_stem_src = "${local.name_prefix}-alb-logs"
+  alb_access_logs_stem_max = 63 - 1 - length(local.alb_access_logs_suffix)
+  alb_access_logs_stem     = trimsuffix(substr(local.alb_access_logs_stem_src, 0, max(local.alb_access_logs_stem_max, 0)), "-")
+  alb_access_logs_bucket   = "${local.alb_access_logs_stem}-${local.alb_access_logs_suffix}"
+
+  alb_arn_suffix = try(split("loadbalancer/", module.alb.alb_arn)[1], "")
 }

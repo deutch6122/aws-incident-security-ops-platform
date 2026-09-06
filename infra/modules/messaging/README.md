@@ -1,64 +1,92 @@
-# module: messaging (SQS + EventBridge)
+# module: messaging (SQS + EventBridge、alarm / finding の 2 系統)
 
-非同期経路の入口を定義する。EventBridge rule がサンプルイベントを受け、SQS
-Standard Queue に配送する。ワーカーがキューを消費し、リトライ超過のメッセージ
-は DLQ に移動する（Req 6.1, 6.4）。
+非同期経路の入口を、**alarm 系統**と**finding 系統**の 2 系統に分離して定義する。
+各系統が独立の EventBridge rule・SQS Standard Queue・専用 DLQ・target・queue policy・
+DLQ redrive-allow policy を所有し、相互のキューを参照しない（Req 6.1, 6.2）。リトライ
+超過のメッセージは自系統 DLQ に移動する（Req 6.4）。
 
-## 構成
+リソースは `local.systems`（`alarm` / `finding`）に対する `for_each` で生成し、同じ定義を
+系統ごとに重複記述しない。
+
+## 構成（各系統ごとに 1 つずつ）
 
 | リソース | 役割 |
 | --- | --- |
-| `aws_sqs_queue.main` | メインの Standard Queue。ワーカーが受信/削除する。 |
-| `aws_sqs_queue.dlq` | DLQ。`maxReceiveCount` 超過のメッセージを退避する。 |
-| `aws_sqs_queue.main.redrive_policy` | `deadLetterTargetArn`＝DLQ ARN、`maxReceiveCount`＝再受信上限。 |
-| `aws_sqs_queue_redrive_allow_policy.dlq` | DLQ を使えるのはメインキューのみに限定（最小権限）。 |
-| `aws_cloudwatch_event_rule.this` | サンプルイベント投入用の EventBridge rule。 |
-| `aws_cloudwatch_event_target.this` | rule → メインキューへの配送ターゲット。 |
-| `aws_sqs_queue_policy.this` | `events.amazonaws.com` からの `SendMessage` を rule ARN 限定で許可。 |
+| `aws_sqs_queue.main[系統]` | 系統のメイン Standard Queue。ワーカーが受信/削除する。 |
+| `aws_sqs_queue.dlq[系統]` | 系統専用 DLQ。`maxReceiveCount` 超過を退避する。 |
+| `aws_sqs_queue.main[系統].redrive_policy` | `deadLetterTargetArn`＝自系統 DLQ、`maxReceiveCount`＝`sqs_max_receive_count`。 |
+| `aws_sqs_queue_redrive_allow_policy.dlq[系統]` | DLQ を使えるのは自系統メインキューのみ（最小権限）。 |
+| `aws_cloudwatch_event_rule.this[系統]` | 系統の EventBridge rule。 |
+| `aws_cloudwatch_event_target.this[系統]` | rule → 自系統メインキューへの配送ターゲット。 |
+| `aws_sqs_queue_policy.this[系統]` | `events.amazonaws.com` からの `SendMessage` を自系統 rule ARN 限定で許可。 |
+
+alarm 系統は 2 個、finding 系統は 2 個の queue（main + DLQ）を持ち、rule / queue / DLQ は
+それぞれ合計 2 個ずつになる。
+
+## detail-type によるルーティング
+
+- alarm rule: `source = [event_source]`（既定 `ops-platform.sample`）＋
+  `detail-type = alarm_event_detail_types`（既定 `["AlarmEvent"]`）に一致したイベントを
+  **alarm queue のみ**へ配送する。
+- finding rule: 同じ source ＋ `detail-type = finding_event_detail_types`
+  （既定 `["SecurityFinding"]`）に一致したイベントを **finding queue のみ**へ配送する。
+- 両 rule は相手系統の queue を target にしない。
+
+event source は seed script と同じ `ops-platform.sample`。detail-type は空集合・空文字を
+variable validation で拒否する。
 
 ## DLQ redrive（maxReceiveCount 超過で移動）
 
-メインキューの `redrive_policy` に DLQ の ARN と `maxReceiveCount`（既定 5）を設定
-する。ワーカーのハンドラが失敗するとメッセージは削除されず、visibility timeout
-後に再配送される。`maxReceiveCount` 回を超えて受信されたメッセージは SQS により
-DLQ へ移される。DLQ 側は `redrive_allow_policy` によりメインキューからのみ利用を
-許可する。
-
-## EventBridge → SQS 配送
-
-`aws_cloudwatch_event_rule` は `eventbridge_event_pattern`（既定は
-`source = ["ops-platform.sample"]`）に一致したイベントを、input transformer を
-使わずそのままメインキューへ配送する。ワーカーはイベント本文（body）を JSON と
-して解析する。
+各系統のメインキューの `redrive_policy` に自系統 DLQ の ARN と `maxReceiveCount`
+（`sqs_max_receive_count`、既定 5）を設定する。`maxReceiveCount` 回を超えて受信された
+メッセージは SQS により自系統 DLQ へ移される。DLQ 側は `redrive_allow_policy` により
+自系統メインキューからのみ利用を許可する（系統間で分離）。
 
 ## Queue policy の SourceArn 限定
 
-キューポリシーは Principal を `Service = events.amazonaws.com` に限定し、さらに
-`Condition aws:SourceArn = <rule ARN>` を付与することで、この EventBridge rule
-以外からの `SendMessage` を拒否する（最小権限）。
+各キューポリシーは Principal を `Service = events.amazonaws.com` に限定し、さらに
+`Condition aws:SourceArn = <自系統 rule ARN>` を付与する。これにより自系統 rule
+以外（相手系統 rule を含む）からの `SendMessage` を拒否する（最小権限）。
 
-## 暗号化（SSE-SQS）
+## Standard queue / 暗号化（SSE-SQS）
 
-メインキュー・DLQ とも `sqs_managed_sse_enabled = true`（SSE-SQS）で保存時暗号化
-する。カスタマーキー素材やシークレットはコードに一切含まない。
+すべてのキューは FIFO ではなく Standard Queue（`fifo_queue` 設定なし）。メインキュー・
+DLQ とも `sqs_managed_sse_enabled = true`（SSE-SQS）で保存時暗号化する。カスタマーキー
+素材やシークレットはコードに一切含まない。
 
-## EKS worker との接続点
+## 入力変数
 
-- `queue_arn` → eks モジュールの `sqs_queue_arns` に渡す（worker role の
-  `ReceiveMessage` / `DeleteMessage` 権限を当該 ARN に限定）。
-- `queue_url` → `eks-workers` の Deployment 環境変数 `WORKER_SQS_QUEUE_URL` に
-  渡す。
-- `dlq_arn` → monitoring モジュール（Task 18.2）で DLQ 深度 > 0 のアラームに
-  利用する。
+- `name_prefix`（必須）/ `common_tags`（必須）
+- `alarm_event_detail_types`（既定 `["AlarmEvent"]`、空拒否）
+- `finding_event_detail_types`（既定 `["SecurityFinding"]`、空拒否）
+- `sqs_max_receive_count`（既定 5）
+- `event_source`（既定 `ops-platform.sample`）
+- `visibility_timeout_seconds` / `message_retention_seconds` / `dlq_message_retention_seconds`
+  / `receive_wait_time_seconds` / `sqs_managed_sse`
 
-## dev root への配線について（後続依存）
+## 出力
 
-`infra/environments/dev` への本モジュール配線は、eks モジュール等との整合が確定
-してから行う。alb/ecs/eks と同じ「実装したものだけ配線」方針に従い、Task 11 時点
-では dev ルートへは配線しない。
+系統別に queue / DLQ の name・url・arn と rule ARN を出力する。
+
+- alarm: `alarm_queue_name` / `alarm_queue_url` / `alarm_queue_arn` /
+  `alarm_dlq_name` / `alarm_dlq_url` / `alarm_dlq_arn` / `alarm_event_rule_arn`
+- finding: `finding_queue_name` / `finding_queue_url` / `finding_queue_arn` /
+  `finding_dlq_name` / `finding_dlq_url` / `finding_dlq_arn` / `finding_event_rule_arn`
+
+## dev root 配線
+
+dev rootへ配線済みです。queue ARN/URLはEKS workerのIRSAとmanifest renderへ、DLQ名はmonitoringへ渡します。実配送とmax-receive挙動はCategory Cです。
 
 ## テスト
 
-`tests/test_messaging_snapshot.py` は Terraform/AWS を実行しない静的テスト。
-redrive 設定・EventBridge rule/target・queue policy（`events.amazonaws.com` ＋
-`aws:SourceArn`）・SSE-SQS・outputs・命名/タグ・機微リテラル非混入を検証する。
+`tests/test_messaging_snapshot.py` は Terraform/AWS を実行しない静的テスト。rule/queue/DLQ
+が 2 系統分存在すること、alarm と finding の detail-type が異なること、各 target が自系統
+queue のみ参照すること、各 queue policy が自系統 rule のみ許可すること、各 DLQ が自系統
+queue のみ許可すること、`sqs_max_receive_count` 既定 5、FIFO 設定が存在しないこと、
+系統別 output・機微リテラル非混入を検証する。
+
+## 検証分類
+
+- Category A（本 Task で必須）: 上記静的テスト、`terraform validate`。
+- Category B（保留）: mock / LocalStack による EventBridge → SQS ルーティング検証。
+- Category C（保留）: 実 EventBridge 配送、実 max-receive 挙動（Req 6.3, 6.4, 6.7）。

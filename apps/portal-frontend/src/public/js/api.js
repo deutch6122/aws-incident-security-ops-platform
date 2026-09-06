@@ -20,28 +20,18 @@
 
   var config = global.PORTAL_CONFIG || {};
 
-  // --- token access (placeholder) -----------------------------------------
-  // Reads the Cognito token from session storage where the Hosted UI / SDK
-  // callback stores it. Returns null when not signed in. No token is hard-coded.
+  // Tokens are owned by PortalAuth's in-memory, expiry-aware store.
   function getIdToken() {
-    try {
-      return global.sessionStorage.getItem("portal_id_token");
-    } catch (e) {
-      return null;
-    }
+    return global.PortalAuth ? global.PortalAuth.getIdToken() : null;
   }
 
   function getAccessToken() {
-    try {
-      return global.sessionStorage.getItem("portal_access_token");
-    } catch (e) {
-      return null;
-    }
+    return global.PortalAuth ? global.PortalAuth.getAccessToken() : null;
   }
 
   function authHeaders() {
     var headers = { Accept: "application/json" };
-    var token = getIdToken() || getAccessToken();
+    var token = getAccessToken() || getIdToken();
     if (token) {
       // Bearer scheme; the token value comes from the Cognito flow at runtime.
       headers["Authorization"] = "Bearer " + token;

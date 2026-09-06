@@ -59,7 +59,9 @@ infra 側の backend 例: [`infra/environments/dev/backend.tf.example`](../infra
 - 可能な箇所は Resource を命名 prefix（`ops-platform-dev-*`）や account/region で制約している。
 - **`Resource="*"` の方針（MVP）**: ネットワーク / ECS / EKS / ECR / RDS / SQS / EventBridge / SNS / WAF / Cognito / CloudFront / CloudWatch 等、**作成前に ARN を指定しづらい AWS サービスでは一部 `Resource="*"` を許容する**。ただしこの場合でも **Action はサービス単位に制限**しており（`Action:"*"` は使わない）、権限の広がりを抑えている。
 - **本番想定での段階的制限**: `aws:RequestTag` / `aws:ResourceTag` の `Project=ops-platform` 条件を用いて `Resource="*"` の statement を段階的に絞り込む。
-- **`iam:PassRole`**: `iam:PassedToService` 条件で渡す先を本 Platform が利用するサービス（`ecs-tasks` / `eks` / `eks-fargate-pods` / `lambda` / `codebuild`）に限定済み。
+- **`iam:PassRole`**: Backend/migrationのECS task execution/task role（計4 ARN）だけを
+  allowlist化し、`iam:PassedToService = ecs-tasks.amazonaws.com`で限定する。EKS、Lambda、
+  CodeBuildおよびmigration-launcher-roleは対象外。
 
 ### CodeBuild → terraform-exec-role の AssumeRole 分離設計
 
@@ -71,7 +73,7 @@ infra 側の backend 例: [`infra/environments/dev/backend.tf.example`](../infra
 
 ## 使い方（手順）
 
-> **注意**: 本サブタスクではコード作成のみを行っており、`terraform apply/plan/init/validate` は実行していません。以下は運用手順の案内です。
+空アカウントからの正確な順序、承認、停止条件、SSM入力は [詳細AWS構築手順書](../docs/operation/aws-build-procedure.md) の手順1〜7を参照する。必要値は [Parameter Sheet](../docs/operation/aws-resource-parameter-sheet.xlsx) を正とする。
 
 1. 変数を用意する
    ```bash
@@ -85,8 +87,8 @@ infra 側の backend 例: [`infra/environments/dev/backend.tf.example`](../infra
    terraform plan
    terraform apply   # ← 作成内容を確認してから実行
    ```
-3. 出力された `state_bucket_name` を控える。
-4. `infra/environments/dev/backend.tf.example` を `backend.tf` にコピーし、`bucket` を上記 state バケット名に置き換える（`use_lockfile = true`）。
+3. 出力された `state_bucket_name` / `artifact_bucket_name` / `codepipeline_name` / `terraform_exec_role_arn` を実行時に取得する。
+4. `infra/environments/dev/backend.tf` はbucket名を含まないpartial backendのまま維持し、CodeBuildが`-backend-config="bucket=..."`でinit時だけ供給する。
 5. 以降の本体インフラは **Infra_Pipeline（CodePipeline）** から適用する。ローカル端末での継続 apply は行わない（Req 21.5）。
 
 ## Infra_Pipeline（承認付き）
@@ -95,6 +97,7 @@ infra 側の backend 例: [`infra/environments/dev/backend.tf.example`](../infra
 - 順序: `terraform fmt` → `validate` → `plan` → **手動承認** → `apply`（Req 21.3）。
 - `plan` は作成/変更/削除予定リソース一覧と、**コスト影響が大きいリソース（Aurora / NAT / EKS / CloudFront）** を明示する（Req 23.1, 23.2）。
 - **承認なしでは apply しない**（Req 21.4, 23.3）。
+- PlanはSSMから証明書ARN、EKS Operator、migration launcher principals、EKS CIDR、application image tag、ECS desired count、Cognito URL、Monitoring通知設定を取得する。初回count=0、migration後count=1の二段階を崩さない。
 
 ## 構成テスト
 

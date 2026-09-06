@@ -7,14 +7,6 @@
 # the logs:* permissions the router needs, and the eks module owns the target
 # CloudWatch Logs group.
 apiVersion: v1
-kind: Namespace
-metadata:
-  name: aws-observability
-  labels:
-    aws-observability: enabled
-    platform: ops-platform-dev
----
-apiVersion: v1
 kind: ConfigMap
 metadata:
   name: aws-logging

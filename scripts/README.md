@@ -29,9 +29,9 @@ python3 scripts/seed_portal_reports.py --count 6
 python3 scripts/seed_alarm_events.py --execute
 python3 scripts/seed_finding_events.py --execute --region ap-northeast-1
 python3 scripts/seed_portal_reports.py --execute \
-  --report-metadata-table ops-platform-dev-report-metadata \
-  --public-status-table  ops-platform-dev-public-status-items \
-  --reports-bucket       ops-platform-dev-portal-REPLACE_WITH_SUFFIX
+  --report-metadata-table <report-metadata-table-output> \
+  --public-status-table  <public-status-table-output> \
+  --reports-bucket       <portal-deployment-s3-bucket-output>
 ```
 
 共通引数:
@@ -50,7 +50,7 @@ python3 scripts/seed_portal_reports.py --execute \
 - **非機微・ダミーのみ**。生成データに実 ARN・実アカウントID（12桁数値）・実
   Token・実 Secret・実ドメインを含めない。`seed/common.assert_non_sensitive` が
   生成時に検査し、疑わしい値があれば `ValueError` で失敗させる（プレースホルダ
-  のみ許容: 例 `ops-platform-dev-resource-0001`、`REPLACE_WITH_SUFFIX`）。
+  のみ許容: 例 `ops-platform-dev-resource-0001`、`<portal-bucket-output>`）。
 - **A→B 一方向**。`seed_portal_reports.py` は Product_B（DynamoDB/S3）へのみ
   書き込む。Product_A（Aurora/ECS/EKS）へは読み書きしない。
 
@@ -80,14 +80,17 @@ App_Deploy スクリプトは terraform を呼びません。
 | スクリプト | 処理順 | 対応要件 |
 | --- | --- | --- |
 | `deploy-ecs.sh` | docker build → ECR push → ECS service update（force new deployment） | Req 22.1, 22.2 |
-| `deploy-eks.sh` | docker build → ECR push → `kubectl apply`（k8s manifests） | Req 22.1, 22.3 |
+| `deploy-eks.sh` | linux/amd64 build → worker別3 ECR push → manifest render/検査 → ログ設定を先行して `kubectl apply` | Req 7, 8, 22.1, 22.3 |
 | `deploy-frontend.sh` | 静的ファイル確認 → `aws s3 sync` → CloudFront invalidation | Req 22.1, 22.4 |
+| `deploy-migration.sh` | migration-launcher roleをAssumeRole → private Fargate one-off task → exit code確認 | Req 5, 30 |
 
 ### 使い方
 
 各スクリプトは `--help` / `-h` で使い方と必須環境変数を表示します。必須環境変数が
 未設定なら明確なエラーで終了します。実 ARN・実アカウント ID・実ドメイン・実 Secret
 は埋め込まず、すべて環境変数 / プレースホルダで渡します。
+
+値の取得元と全実行順は [Parameter Sheet](../docs/operation/aws-resource-parameter-sheet.xlsx) と [詳細AWS構築手順書](../docs/operation/aws-build-procedure.md) を参照してください。下記はdry-runの形を示す例で、実値はTerraform outputから取得します。
 
 ```bash
 # ECS（dry-run: 既定）。実行は末尾に --execute を付ける
@@ -99,14 +102,31 @@ AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
 
 # EKS（dry-run: 既定）
 AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
-  ECR_REPO=ops-platform-dev-eks-workers \
   EKS_CLUSTER=ops-platform-dev-eks \
+  ALARM_ECR_REPO=ops-platform-dev-alarm-event-processor \
+  FINDING_ECR_REPO=ops-platform-dev-security-finding-worker \
+  SUMMARY_ECR_REPO=ops-platform-dev-monthly-summary-cronjob \
+  EKS_ALARM_WORKER_ROLE_ARN=<alarm-role-arn> \
+  EKS_FINDING_WORKER_ROLE_ARN=<finding-role-arn> \
+  EKS_CRONJOB_ROLE_ARN=<cronjob-role-arn> \
+  WORKER_DB_SECRET_ARN=<database-secret-arn> \
+  ALARM_QUEUE_URL=<alarm-queue-url> \
+  FINDING_QUEUE_URL=<finding-queue-url> \
+  WORKER_LOG_GROUP_NAME=/ops-platform-dev/eks/workers \
+  PORTAL_REPORTS_BUCKET=<reports-bucket> \
+  PORTAL_REPORT_METADATA_TABLE=ops-platform-dev-report-metadata \
+  PORTAL_PUBLIC_STATUS_ITEMS_TABLE=ops-platform-dev-public-status-items \
   scripts/deploy-eks.sh --tag v1
 
 # Frontend（dry-run: 既定）
 AWS_REGION=ap-northeast-1 \
-  S3_BUCKET=ops-platform-dev-portal-REPLACE_WITH_SUFFIX \
-  CLOUDFRONT_DISTRIBUTION_ID=REPLACE_WITH_DISTRIBUTION_ID \
+  S3_BUCKET=<portal-deployment-s3-bucket-output> \
+  CLOUDFRONT_DISTRIBUTION_ID=<cloudfront-distribution-id-output> \
+  COGNITO_USER_POOL_ID=<terraform-user-pool-id-output> \
+  COGNITO_APP_CLIENT_ID=<terraform-app-client-id-output> \
+  COGNITO_DOMAIN=<terraform-hosted-domain-output> \
+  COGNITO_REDIRECT_URI=https://portal.example/callback \
+  COGNITO_LOGOUT_URI=https://portal.example/ \
   scripts/deploy-frontend.sh
 ```
 
@@ -128,6 +148,6 @@ AWS_REGION=ap-northeast-1 \
 operation のドキュメント整合を検証します。
 
 ```bash
-bash -n scripts/deploy-ecs.sh scripts/deploy-eks.sh scripts/deploy-frontend.sh
+bash -n scripts/deploy-ecs.sh scripts/deploy-eks.sh scripts/deploy-frontend.sh scripts/deploy-migration.sh
 python3 -m pytest scripts/tests -q
 ```

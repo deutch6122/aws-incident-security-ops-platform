@@ -25,7 +25,18 @@ phases:
     commands:
       # jq は assume-role の一時クレデンシャル JSON パースに使用する。
       - jq --version || echo "jq が無い場合は導入してください（例: yum install -y jq）"
-      - terraform version
+      - |
+        set -euo pipefail
+        TF_VERSION="$(tr -d '[:space:]' < .terraform-version)"
+        TF_ARCHIVE="terraform_${TF_VERSION}_linux_amd64.zip"
+        TF_CHECKSUM="$(awk -v archive="$TF_ARCHIVE" '$2 == archive {print $1}' .terraform-version.checksums)"
+        test -n "$TF_CHECKSUM"
+        curl -fsSLo "/tmp/$TF_ARCHIVE" "https://releases.hashicorp.com/terraform/${TF_VERSION}/$TF_ARCHIVE"
+        echo "$TF_CHECKSUM  /tmp/$TF_ARCHIVE" | sha256sum -c -
+        unzip -oq "/tmp/$TF_ARCHIVE" -d /tmp/terraform-bin
+        install /tmp/terraform-bin/terraform /usr/local/bin/terraform
+        test "$(terraform version -json | jq -r .terraform_version)" = "$TF_VERSION"
+        terraform version
   build:
     commands:
       # terraform-exec-role を assume して一時クレデンシャルを export（権限分離）。
@@ -45,16 +56,24 @@ phases:
         # CODEBUILD_SRC_DIR_<artifactName> で参照できる。
         PLAN_SRC_DIR_VAR="CODEBUILD_SRC_DIR_${PLAN_ARTIFACT_NAME}"
         PLAN_SRC_DIR="${!PLAN_SRC_DIR_VAR:-}"
-        if [ -n "$PLAN_SRC_DIR" ] && [ -f "$PLAN_SRC_DIR/$TF_WORKDIR/tfplan.binary" ]; then
-          PLAN_FILE="$PLAN_SRC_DIR/$TF_WORKDIR/tfplan.binary"
-        else
-          # フォールバック（単一 input 実行時など）。
-          PLAN_FILE="$TF_WORKDIR/tfplan.binary"
-        fi
+        test -n "$PLAN_SRC_DIR"
+        PLAN_FILE="$PLAN_SRC_DIR/$TF_WORKDIR/tfplan.binary"
+        PLAN_LOCK="$PLAN_SRC_DIR/$TF_WORKDIR/.terraform.lock.hcl"
+        PACKAGE_METADATA="$PLAN_SRC_DIR/$TF_WORKDIR/lambda-package-metadata.json"
+        test -f "$PLAN_FILE" && test -f "$PLAN_LOCK" && test -f "$PACKAGE_METADATA"
+        cmp -s "$PLAN_LOCK" "$TF_WORKDIR/.terraform.lock.hcl"
+        test "$(sha256sum "$PLAN_LOCK" | awk '{print $1}')" = "$(jq -r .lock_sha256 "$PACKAGE_METADATA")"
+        test "$(terraform version -json | jq -r .terraform_version)" = "$(jq -r .terraform_version "$PACKAGE_METADATA")"
+        PACKAGE_BUCKET="$(jq -r .bucket "$PACKAGE_METADATA")"
+        PACKAGE_KEY="$(jq -r .key "$PACKAGE_METADATA")"
+        PACKAGE_VERSION="$(jq -r .version "$PACKAGE_METADATA")"
+        PACKAGE_HASH="$(jq -r .source_code_hash "$PACKAGE_METADATA")"
+        REMOTE_HASH="$(aws s3api head-object --bucket "$PACKAGE_BUCKET" --key "$PACKAGE_KEY" --version-id "$PACKAGE_VERSION" --query 'Metadata.source-code-hash' --output text)"
+        test "$REMOTE_HASH" = "$PACKAGE_HASH"
         echo "適用対象 plan: $PLAN_FILE"
 
         echo "=== terraform init ==="
-        terraform -chdir="$TF_WORKDIR" init -input=false
+        terraform -chdir="$TF_WORKDIR" init -input=false -lockfile=readonly -backend-config="bucket=$TF_BACKEND_BUCKET"
         echo "=== terraform apply (承認済み plan を適用) ==="
         # plan 段階の tfplan.binary を適用することで、承認された内容と一致させる。
         terraform -chdir="$TF_WORKDIR" apply -input=false -auto-approve "$PLAN_FILE"

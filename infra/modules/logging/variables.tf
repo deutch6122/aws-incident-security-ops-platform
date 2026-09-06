@@ -20,12 +20,20 @@ variable "common_tags" {
   }
 }
 
-# Task 11.2 requires 14-30 day retention, but CloudWatch Logs only accepts
-# specific discrete values (a value like 21 would fail at apply time). Within
-# the required 14-30 day range the CloudWatch Logs-supported values are 14 and
-# 30, so this validation allows only those two.
+variable "vpc_id" {
+  description = "VPC whose traffic is captured by the flow log. Required; supplied by the network module output via the dev root in Task 27."
+  type        = string
+
+  validation {
+    condition     = can(regex("^vpc-[0-9a-f]+$", var.vpc_id))
+    error_message = "vpc_id must be a valid vpc-<hex> identifier."
+  }
+}
+
+# CloudWatch Logs only accepts specific discrete retention values. Within the
+# required 14-30 day range the supported values are 14 and 30.
 variable "retention_in_days" {
-  description = "CloudWatch Logs retention in days for the log groups this module owns. Must be 14 or 30 (the CloudWatch Logs-supported values within the required 14-30 day range)."
+  description = "CloudWatch Logs retention in days for the VPC Flow Logs group this module owns. Must be 14 or 30."
   type        = number
   default     = 30
 
@@ -33,32 +41,6 @@ variable "retention_in_days" {
     condition     = contains([14, 30], var.retention_in_days)
     error_message = "retention_in_days must be 14 or 30: the CloudWatch Logs-supported values within the required 14-30 day retention range."
   }
-}
-
-# The Portal API Lambda log group is created here because no other module owns
-# it yet (the Lambda module is Task 15). Toggle off if the lambda module later
-# takes ownership.
-variable "enable_lambda_log_group" {
-  description = "Whether to create the Portal Lambda CloudWatch Logs group (/aws/lambda/<name_prefix>-portal)."
-  type        = bool
-  default     = true
-}
-
-variable "lambda_log_group_name" {
-  description = "Override name for the Portal Lambda log group. Defaults to /aws/lambda/<name_prefix>-portal."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = var.lambda_log_group_name == null || can(regex("^/[A-Za-z0-9._/-]+$", var.lambda_log_group_name))
-    error_message = "lambda_log_group_name must be null or a valid CloudWatch Logs group path beginning with a slash."
-  }
-}
-
-variable "enable_vpc_flowlogs_log_group" {
-  description = "Whether to create the VPC Flow Logs CloudWatch Logs group (/vpc/<name_prefix>-flowlogs)."
-  type        = bool
-  default     = true
 }
 
 variable "vpc_flowlogs_log_group_name" {
@@ -72,9 +54,9 @@ variable "vpc_flowlogs_log_group_name" {
   }
 }
 
-# NOTE ON OWNERSHIP: the ECS backend-api log group (/ecs/<name_prefix>-backend-api)
-# is owned by the ecs module (Task 9) and the EKS worker log group
-# (/<name_prefix>/eks/workers) is owned by the eks module (Task 10). This module
-# never creates those groups. Their retention is set through each owning
-# module's own log_retention_days variable. See README.md for the ownership
-# table.
+# NOTE ON OWNERSHIP (single owner per log group):
+#   - ECS Backend log group (/ecs/<name_prefix>-backend-api) -> ecs module
+#   - EKS worker log group                                   -> eks module
+#   - Portal Lambda log group (/aws/lambda/<name_prefix>-portal-api) -> lambda module
+#   - VPC Flow Logs log group (/vpc/<name_prefix>-flowlogs)  -> THIS module
+# This module creates ONLY the VPC Flow Logs group. See README.md.

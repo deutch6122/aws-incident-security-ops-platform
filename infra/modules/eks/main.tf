@@ -12,9 +12,10 @@ locals {
 
   # OIDC subject conditions restrict each IRSA role to a single ServiceAccount in
   # the worker namespace. aud is the standard STS audience.
-  oidc_provider_bare_url = replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
-  worker_sa_subject      = "system:serviceaccount:${var.worker_namespace}:${var.worker_service_account_name}"
-  cronjob_sa_subject     = "system:serviceaccount:${var.worker_namespace}:${var.cronjob_service_account_name}"
+  oidc_provider_bare_url    = replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
+  alarm_worker_sa_subject   = "system:serviceaccount:${var.worker_namespace}:${var.alarm_worker_service_account_name}"
+  finding_worker_sa_subject = "system:serviceaccount:${var.worker_namespace}:${var.finding_worker_service_account_name}"
+  cronjob_sa_subject        = "system:serviceaccount:${var.worker_namespace}:${var.cronjob_service_account_name}"
 }
 
 # ---------------------------------------------------------------------------
@@ -22,7 +23,7 @@ locals {
 # ---------------------------------------------------------------------------
 resource "aws_eks_cluster" "this" {
   name     = local.cluster_name
-  version  = var.cluster_version
+  version  = var.eks_kubernetes_version
   role_arn = aws_iam_role.cluster.arn
 
   vpc_config {
@@ -30,7 +31,7 @@ resource "aws_eks_cluster" "this" {
     security_group_ids      = [var.eks_security_group_id]
     endpoint_private_access = var.endpoint_private_access
     endpoint_public_access  = var.endpoint_public_access
-    public_access_cidrs     = var.endpoint_public_access ? var.public_access_cidrs : null
+    public_access_cidrs     = var.endpoint_public_access ? var.eks_public_access_cidrs : null
   }
 
   enabled_cluster_log_types = var.enabled_cluster_log_types
@@ -215,12 +216,11 @@ resource "aws_eks_fargate_profile" "aws_observability" {
 }
 
 # ---------------------------------------------------------------------------
-# IRSA: eks-worker-role (Worker_Alarm / Worker_Finding)
-#   Least privilege: SQS receive/delete on the worker queues, Secrets Manager
-#   GetSecretValue on db_secret_arn only, CloudWatch Logs write.
+# IRSA: two independent workers. Each trust policy is bound to exactly one
+# ServiceAccount and each policy can consume exactly one queue.
 # ---------------------------------------------------------------------------
-resource "aws_iam_role" "worker" {
-  name = "${var.name_prefix}-eks-worker-role"
+resource "aws_iam_role" "alarm_worker" {
+  name = "${var.name_prefix}-eks-alarm-worker-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -232,7 +232,7 @@ resource "aws_iam_role" "worker" {
       Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
-          "${local.oidc_provider_bare_url}:sub" = local.worker_sa_subject
+          "${local.oidc_provider_bare_url}:sub" = local.alarm_worker_sa_subject
           "${local.oidc_provider_bare_url}:aud" = "sts.amazonaws.com"
         }
       }
@@ -240,15 +240,15 @@ resource "aws_iam_role" "worker" {
   })
 
   tags = merge(var.common_tags, {
-    Name      = "${var.name_prefix}-eks-worker-role"
+    Name      = "${var.name_prefix}-eks-alarm-worker-role"
     Component = "eks"
-    Role      = "irsa-worker"
+    Role      = "irsa-alarm-worker"
   })
 }
 
-resource "aws_iam_role_policy" "worker" {
-  name = "${var.name_prefix}-eks-worker-policy"
-  role = aws_iam_role.worker.id
+resource "aws_iam_role_policy" "alarm_worker" {
+  name = "${var.name_prefix}-eks-alarm-worker-policy"
+  role = aws_iam_role.alarm_worker.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -262,7 +262,72 @@ resource "aws_iam_role_policy" "worker" {
           "sqs:GetQueueAttributes",
           "sqs:GetQueueUrl",
         ]
-        Resource = var.sqs_queue_arns
+        Resource = [var.alarm_queue_arn]
+      },
+      {
+        Sid      = "SecretsManagerReadDbCredential"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.db_secret_arn]
+      },
+      {
+        Sid    = "CloudWatchLogsWrite"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+        ]
+        Resource = ["${aws_cloudwatch_log_group.workers.arn}:*"]
+      },
+    ]
+  })
+}
+
+resource "aws_iam_role" "finding_worker" {
+  name = "${var.name_prefix}-eks-finding-worker-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.this.arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${local.oidc_provider_bare_url}:sub" = local.finding_worker_sa_subject
+          "${local.oidc_provider_bare_url}:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+
+  tags = merge(var.common_tags, {
+    Name      = "${var.name_prefix}-eks-finding-worker-role"
+    Component = "eks"
+    Role      = "irsa-finding-worker"
+  })
+}
+
+resource "aws_iam_role_policy" "finding_worker" {
+  name = "${var.name_prefix}-eks-finding-worker-policy"
+  role = aws_iam_role.finding_worker.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "SqsReceiveDelete"
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl",
+        ]
+        Resource = [var.finding_queue_arn]
       },
       {
         Sid      = "SecretsManagerReadDbCredential"
@@ -286,9 +351,10 @@ resource "aws_iam_role_policy" "worker" {
 
 # ---------------------------------------------------------------------------
 # IRSA: eks-cronjob-role (Cronjob_Summary)
-#   Least privilege: Secrets Manager GetSecretValue on db_secret_arn only,
-#   CloudWatch Logs write. Portal (S3/DynamoDB) write permissions belong to the
-#   A->B linkage (Phase 3) and are intentionally NOT granted here. See README.
+#   Least privilege: database secret read, worker log writes, Portal report
+#   object writes under reports/*, and PutItem to exactly the two Portal tables.
+#   Application environment wiring and idempotent A->B behavior are completed
+#   separately by the A->B integration task.
 # ---------------------------------------------------------------------------
 resource "aws_iam_role" "cronjob" {
   name = "${var.name_prefix}-eks-cronjob-role"
@@ -339,6 +405,21 @@ resource "aws_iam_role_policy" "cronjob" {
           "logs:DescribeLogStreams",
         ]
         Resource = ["${aws_cloudwatch_log_group.workers.arn}:*"]
+      },
+      {
+        Sid      = "WritePortalReports"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = ["${var.portal_reports_bucket_arn}/reports/*"]
+      },
+      {
+        Sid    = "WritePortalStatusTables"
+        Effect = "Allow"
+        Action = ["dynamodb:PutItem"]
+        Resource = [
+          var.report_metadata_table_arn,
+          var.public_status_items_table_arn,
+        ]
       },
     ]
   })

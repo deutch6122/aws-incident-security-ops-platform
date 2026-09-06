@@ -42,6 +42,27 @@ def test_invalid_int_config_raises() -> None:
         WorkerSettings.from_env({"WORKER_MAX_MESSAGES": "not-a-number"})
 
 
+def test_portal_targets_require_all_three_environment_values() -> None:
+    from workers.portal_adapters import PortalTargets
+
+    variable_names = (
+        "PORTAL_REPORTS_BUCKET",
+        "PORTAL_REPORT_METADATA_TABLE",
+        "PORTAL_PUBLIC_STATUS_ITEMS_TABLE",
+    )
+    complete = {
+        "PORTAL_REPORTS_BUCKET": "portal-reports",
+        "PORTAL_REPORT_METADATA_TABLE": "report-metadata",
+        "PORTAL_PUBLIC_STATUS_ITEMS_TABLE": "public-status-items",
+    }
+    PortalTargets.from_env(complete).validate()
+
+    for missing in variable_names:
+        incomplete = {key: value for key, value in complete.items() if key != missing}
+        with pytest.raises(RuntimeError, match=missing):
+            PortalTargets.from_env(incomplete).validate()
+
+
 def test_importing_workers_package_does_no_io() -> None:
     # Importing the package and pure modules must not touch AWS or a DB.
     import importlib

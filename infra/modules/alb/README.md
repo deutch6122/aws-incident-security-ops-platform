@@ -1,49 +1,84 @@
 # alb module
 
-This module defines the Product_A internet-facing Application Load Balancer for the dev MVP: the ALB itself, a Fargate (`ip`) target group with a `/health` health check, an HTTPS (443) listener, always-on access logging, and an HTTPS-only security group whose ingress is restricted to trusted CIDRs.
+Product_A internet-facing Application Load Balancer for the dev MVP: the ALB
+itself, a Fargate (`ip`) target group with a `/health` health check, a
+**mandatory HTTPS (443) listener**, an **HTTP (80) listener that 301-redirects to
+HTTPS**, always-on access logging, and support for either a module-owned
+HTTPS-only security group or an externally supplied one.
 
 - Requirements: Req 15.1, 15.3
-- Implemented in Task 9.1.
 
-## HTTPS and HTTP ingress, bounded to trusted CIDRs
+## TLS: mandatory HTTPS + HTTP→HTTPS redirect
 
-The ALB is `internal = false` by default (a demo public ALB), but both HTTP (80) and HTTPS (443) ingress are always bounded to `allowed_ingress_cidrs`. The variable validation forbids `0.0.0.0/0`, mirroring the network module's `allowed_alb_ingress_cidrs`, so the ALB is never open to the entire Internet.
-
-## Security group relationship with the network module
-
-The Task 4 network module already defines an `alb` boundary security group (443 ingress from trusted CIDRs, egress to the ECS SG). To keep a single owner of the ALB's live SG this module supports two modes:
-
-- `create_security_group = true` (default): the module creates and attaches its own `${name_prefix}-alb-sg`. HTTPS (443) ingress is restricted to `allowed_ingress_cidrs`, and egress to the app port is a **referenced** egress rule targeting `ecs_security_group_id` — the ECS task SG — rather than a CIDR. Following the network module style, the `aws_security_group` body sets `ingress = []` / `egress = []` and standalone `aws_vpc_security_group_ingress_rule` / `aws_vpc_security_group_egress_rule` resources add the explicit rules.
-  - The egress rule is created **only when `ecs_security_group_id` is non-null**. When `ecs_security_group_id` is `null` the module creates no egress rule at all and never opens egress to `0.0.0.0/0`; the ALB SG body keeps `egress = []` until a concrete ECS SG is supplied. This is the safe default when the destination SG is not yet known.
-- `create_security_group = false`: the module attaches the supplied `alb_security_group_id` (for example `module.network.security_group_ids.alb`) and creates no rules, letting the network module remain the single owner.
-
-The network module's SG expresses the boundary intent; this module's SG (when created) is the one actually attached to the ALB. Choose one owner per environment to avoid double management.
-
-## Listener and TLS
-
-The module creates two listeners:
-
-- **HTTP (80) listener**: Always created as a dev/MVP fallback when no ACM certificate is available. This allows the Backend API to be accessed during development before a certificate is issued.
-- **HTTPS (443) listener**: Created only when `certificate_arn` is provided. In production, configure an ACM certificate and use HTTPS.
-
-The HTTPS listener uses `ssl_policy` defaulting to a TLS 1.3 policy. When `certificate_arn` is `null` (dev without a certificate), only the HTTP listener is active. The HTTP fallback is intended for dev/MVP use; `0.0.0.0/0` is forbidden by the `allowed_ingress_cidrs` validation, so access is always restricted to trusted CIDRs.
+- `certificate_arn` is a **required** input (no default, not nullable) and is
+  validated as an ACM certificate ARN. The real ARN is supplied at wiring time
+  via the Parameter Sheet and is never committed to the repository.
+- **HTTPS (443) listener**: always created (no `count`/certificate fallback),
+  `protocol = HTTPS`, `ssl_policy = var.ssl_policy` (default TLS 1.3), forwards
+  to the backend target group.
+- **HTTP (80) listener**: always created, its default action is a
+  `redirect` to `HTTPS` port `443` with `status_code = HTTP_301`. It never
+  forwards to the target group, so plaintext is never served by the backend.
 
 ## Target group
 
-`target_type = "ip"` for Fargate (awsvpc) targets, protocol HTTP on `app_port` (default 8080, restricted to 8000/8080), health check path `/health`.
+`target_type = "ip"` for Fargate (awsvpc) targets, protocol HTTP on `app_port`
+(default 8080, restricted to 8000/8080), health check path `/health`. In-cluster
+container communication remains HTTP (TLS terminates at the ALB).
 
 ## Access logging
 
-Access logging is always enabled, so `access_logs_bucket` (an existing S3 bucket owned outside this module) is required. Objects are written under `access_logs_prefix` (default `alb`).
+Access logging is always enabled, so `access_logs_bucket` (an existing S3 bucket)
+is a required input, written under `access_logs_prefix` (default `alb`).
+
+**Ownership**: this module does **not** create the access-log S3 bucket or its
+bucket policy. The dev root (Task 27) owns the ALB access-log bucket, its
+account/region-unique name, and the bucket policy granting the ELB log-delivery
+principal write access. This module only references the bucket by name.
+
+## Security group boundary
+
+`network` module owns the SG boundary intent. This module supports two modes:
+
+- `create_security_group = true` (default): creates `${name_prefix}-alb-sg`
+  (body `ingress = []` / `egress = []` plus standalone rule resources). HTTP(80)
+  and HTTPS(443) ingress are restricted to `allowed_ingress_cidrs` (validation
+  forbids `0.0.0.0/0`). Egress is a **referenced** rule to `ecs_security_group_id`
+  only, created only when that SG is supplied (never `0.0.0.0/0`).
+- `create_security_group = false`: attaches the supplied `alb_security_group_id`
+  (e.g. `module.network.security_group_ids.alb`) and creates no rules.
+
+**In Task 27 the dev root passes the network module's SG** (`create_security_group = false`
+with `alb_security_group_id = module.network.security_group_ids.alb`) so the ALB
+and network modules never double-create the same SG. No new public `0.0.0.0/0`
+ingress is added by this module.
 
 ## Outputs
 
-`alb_arn`, `alb_dns_name`, `alb_zone_id`, `target_group_arn`, `listener_arn` (null when no certificate), and `security_group_id`. No secret value is output.
+- `alb_arn`, `alb_dns_name`, `alb_zone_id`, `target_group_arn`, `security_group_id`
+- `https_listener_arn` (**always present / non-nullable** — HTTPS listener is
+  unconditional)
+- `http_listener_arn` (the 301 redirect listener)
+
+No secret value is output.
 
 ## dev root wiring
 
-This module is **not** wired into the dev root in Task 9. The ALB/ECS stack still depends on inputs owned by later tasks — IAM roles (Task 10+), an ACM certificate, the access-log S3 bucket, and the container image URI. Wiring is deferred until those dependencies exist so the Task 4 "wire only what the task implements" policy is preserved. See `apps/backend-api` / dev root notes for the deferral.
+This module is **not** wired into the dev root here. Wiring — including passing
+the network SG, the ACM certificate ARN, and the access-log bucket + policy — is
+performed in Task 27.
 
-## Not run by this module
+## Tests
 
-This module does not run Terraform (`init`/`validate`/`plan`/`apply`) and does not contact AWS. The Task 9.3 tests are static text/regex checks only.
+`tests/test_alb_snapshot.py` is a static text/regex check (no Terraform/AWS). It
+verifies the mandatory certificate input, unconditional HTTPS listener, HTTP→443
+`HTTP_301` redirect with no forward, HTTP/ip/app_port target group, always-on
+access logging with no in-module bucket, the external SG interface, a
+non-nullable HTTPS listener output, and the absence of real ARNs / account IDs /
+secrets.
+
+## Verification category
+
+- Category A (required): the static test above, `terraform validate`.
+- Category C (deferred, real AWS): HTTP→HTTPS redirect response and TLS behaviour
+  against a live ALB.

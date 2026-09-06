@@ -22,4 +22,7 @@ window.PORTAL_CONFIG = {
   API_BASE: "/api",
   // Redirect URI registered with the Cognito App Client. Placeholder.
   REDIRECT_URI: "REPLACE_WITH_REDIRECT_URI",
+  // Logout redirect URI registered with the Cognito App Client.
+  LOGOUT_URI: "REPLACE_WITH_LOGOUT_URI",
+  OAUTH_SCOPES: "openid email profile",
 };

@@ -1,6 +1,6 @@
-# Product_A Backend API — Task 7 common foundation
+# Product_A Backend API
 
-Python/FastAPIによるProduct_A Backend APIのデータ層・共通HTTP基盤です。このディレクトリで実装済みなのは **Task 7.1〜7.5のみ** です。`dashboard`、`incidents`、`findings`、`summaries`などTask 8の業務APIは未実装です。
+Python/FastAPIによるProduct_A Backend APIです。共通HTTP基盤、Bearer認証、Aurora接続、repository、dashboard / incidents / findings / summaries の業務routerを実装済みです。
 
 ## パッケージ構成
 
@@ -10,18 +10,25 @@ Python/FastAPIによるProduct_A Backend APIのデータ層・共通HTTP基盤�
 - `app/db/`: 7表のSQLAlchemyモデル、Secrets Manager port、遅延Engine/Session生成
 - `app/repositories.py`: incidents/comments/findings/triage/summaries/audit_logsの型付きCRUD・集計repository
 - `app/domain/aggregation.py`: DB非依存の集計・変換関数
-- `app/contracts.py`, `app/contract_store.py`: Task 7の401/400/404/500契約だけを確認する保護placeholder
+- `app/contracts.py`, `app/contract_store.py`: 401/400/404/500契約を確認するテスト用route
+- `app/routers/`: dashboard / incidents / findings / summaries の業務router
 - `tests/`: unit/static/API testsとProperty 2/4（Hypothesis、各100例）
 
 `alarm_events`はマイグレーションとのモデル整合を保つためモデル化しています。Task 7.2のrepository対象外なのでrepositoryは後続タスクに委ねています。
 
-## エンドポイント（Task 7限定）
+## エンドポイント
 
 | Method / path | 公開範囲 | 用途 |
 | --- | --- | --- |
 | `GET /health` | 公開 | コンテナhealth check。AWS/DBへ接続しない |
 | `GET /docs`, `GET /openapi.json` | 公開 | FastAPI OpenAPI |
 | `/_contracts/*` | Bearer必須 | 共通認証・入力・404・500契約のplaceholder |
+| `GET /dashboard/summary` | Bearer必須 | 件数・状態集計 |
+| `GET/POST /incidents` | Bearer必須 | Incident一覧・登録 |
+| `GET /incidents/{id}` | Bearer必須 | Incident詳細 |
+| `PATCH /incidents/{id}/status` | Bearer必須 | 状態更新とaudit log |
+| `GET /findings`, `GET /findings/{id}` | Bearer必須 | Finding一覧・詳細 |
+| `GET /summaries/{yyyymm}` | Bearer必須 | 月次集計 |
 
 `/_contracts/incidents/{id}`、`/_contracts/findings/{id}`、`/_contracts/summaries/{period}`はin-memory lookup portを使うテスト用contract routeです。業務データをCRUDするAPIではありません。
 
@@ -33,10 +40,11 @@ Python/FastAPIによるProduct_A Backend APIのデータ層・共通HTTP基盤�
 | --- | --- |
 | `BACKEND_AWS_REGION` | Secrets Manager clientのregion |
 | `BACKEND_DB_SECRET_ARN` | DB secretのARN（Secret値ではない） |
+| `BACKEND_DB_NAME` | DB Secretに非空のdbnameが無い場合のフォールバックDB名 |
 | `BACKEND_INTERNAL_BEARER_TOKEN` | Product_A MVPの内部Bearer credential |
 | `BACKEND_APP_NAME` | 任意のOpenAPI title |
 
-Secret JSONで必須のキー名は `username`、`password`、`host`、`port`、`dbname` です。Secret payload、password、完全なDB URLはログ・例外へ出しません。SQLAlchemy `URL.create`で特殊文字を安全に扱います。
+Secret JSONで必須のキー名は `username`、`password`、`host`、`port` です。`dbname` はoptionalです。DB名の解決順は「Secretの非空dbname → `BACKEND_DB_NAME` → 安全な設定エラー」です。Secret payload、password、完全なDB URLはログ・例外へ出しません。SQLAlchemy `URL.create`で特殊文字を安全に扱います。
 
 認証tokenが未設定の場合、保護routeはfail-openせず401を返します。ローカル利用時もtokenは安全な設定経路から注入し、shell history、`.env`、README、テストfixtureへ固定値を書かないでください。
 
@@ -72,11 +80,11 @@ python3 -m compileall -q app tests
 
 テストはfake SecretReader、mocked Session、in-memory contract lookupを使い、AWS APIやAuroraへ接続しません。Docker/testcontainersはTask 7の必須条件ではありません。依存パッケージをこの検証のために自動インストールしません。
 
-## セキュリティとTask境界
+## セキュリティ
 
 - 認証header欠落、不正scheme、不正credentialは常に401と`WWW-Authenticate: Bearer`。
 - 認証middlewareはbody/path validationより先に保護prefixを拒否します。
 - validation errorは400へ正規化し、必須欠落時は`missing_fields`を返します。
 - `NotFoundError`は安全な404を生成します。
 - 予期しない例外は500と検証済み／新規生成の相関IDを返し、Authorization headerをログに残しません。
-- **Task 8以降の業務endpoint、AWS統合、実Aurora接続はこの実装範囲外です。**
+- 実Aurora接続とECS上での疎通はCategory Cであり、ローカルテストではfake/mocked dependencyを使用します。

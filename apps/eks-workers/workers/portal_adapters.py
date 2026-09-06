@@ -24,8 +24,8 @@ class PortalTargets:
 
     aws_region: str = "ap-northeast-1"
     reports_bucket: str | None = None
-    report_metadata_table: str = "ops-platform-dev-report-metadata"
-    public_status_items_table: str = "ops-platform-dev-public-status-items"
+    report_metadata_table: str | None = None
+    public_status_items_table: str | None = None
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> "PortalTargets":
@@ -40,23 +40,33 @@ class PortalTargets:
             stripped = value.strip()
             return stripped or None
 
-        defaults = cls()
         return cls(
-            aws_region=_clean("WORKER_AWS_REGION") or defaults.aws_region,
+            aws_region=_clean("WORKER_AWS_REGION") or "ap-northeast-1",
             reports_bucket=_clean("PORTAL_REPORTS_BUCKET"),
-            report_metadata_table=(
-                _clean("PORTAL_REPORT_METADATA_TABLE") or defaults.report_metadata_table
-            ),
-            public_status_items_table=(
-                _clean("PORTAL_PUBLIC_STATUS_ITEMS_TABLE")
-                or defaults.public_status_items_table
-            ),
+            report_metadata_table=_clean("PORTAL_REPORT_METADATA_TABLE"),
+            public_status_items_table=_clean("PORTAL_PUBLIC_STATUS_ITEMS_TABLE"),
         )
 
     def require_reports_bucket(self) -> str:
         if not self.reports_bucket:
             raise RuntimeError("PORTAL_REPORTS_BUCKET is not configured")
         return self.reports_bucket
+
+    def require_report_metadata_table(self) -> str:
+        if not self.report_metadata_table:
+            raise RuntimeError("PORTAL_REPORT_METADATA_TABLE is not configured")
+        return self.report_metadata_table
+
+    def require_public_status_items_table(self) -> str:
+        if not self.public_status_items_table:
+            raise RuntimeError("PORTAL_PUBLIC_STATUS_ITEMS_TABLE is not configured")
+        return self.public_status_items_table
+
+    def validate(self) -> None:
+        """Fail before any write unless all three non-secret targets exist."""
+        self.require_reports_bucket()
+        self.require_report_metadata_table()
+        self.require_public_status_items_table()
 
 
 class S3PortalStorage:
@@ -102,7 +112,7 @@ class DynamoReportMetadataWriter(_DynamoTableWriter):
     """Upserts report_metadata keyed on report_id (PutItem overwrites)."""
 
     def __init__(self, targets: PortalTargets) -> None:
-        super().__init__(targets, targets.report_metadata_table)
+        super().__init__(targets, targets.require_report_metadata_table())
 
     def upsert_report(self, item: dict[str, Any]) -> None:
         self._table().put_item(Item=dict(item))
@@ -112,7 +122,7 @@ class DynamoPublicStatusWriter(_DynamoTableWriter):
     """Upserts public_status_items keyed on status_id (PutItem overwrites)."""
 
     def __init__(self, targets: PortalTargets) -> None:
-        super().__init__(targets, targets.public_status_items_table)
+        super().__init__(targets, targets.require_public_status_items_table())
 
     def upsert_status(self, item: dict[str, Any]) -> None:
         self._table().put_item(Item=dict(item))

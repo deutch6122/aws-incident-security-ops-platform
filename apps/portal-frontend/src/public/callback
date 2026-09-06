@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Status Portal — 認証コールバック</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1>ログイン処理</h1>
+      <div id="login">
+        <button id="login-button" type="button" hidden>再ログイン</button>
+        <button id="logout-button" type="button">ログアウト</button>
+        <p id="auth-message" role="alert" aria-live="assertive">認証結果を確認しています...</p>
+      </div>
+    </main>
+    <script src="config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/pages.js"></script>
+    <script>window.PortalPages.initLoginPage();</script>
+  </body>
+</html>

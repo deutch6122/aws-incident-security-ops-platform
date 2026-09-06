@@ -22,7 +22,7 @@ spec:
         app.kubernetes.io/name: alarm-event-processor
         app.kubernetes.io/part-of: ops-platform
     spec:
-      serviceAccountName: eks-worker
+      serviceAccountName: eks-alarm-worker
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -32,9 +32,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: alarm-event-processor
-          # Placeholder image reference. Replace ${ECR_WORKERS_IMAGE} with the
-          # eks-workers ECR image URI at deploy time.
-          image: ${ECR_WORKERS_IMAGE}
+          # Dedicated alarm-event-processor ECR image, rendered at deploy time.
+          image: ${ALARM_WORKER_IMAGE}
           command: ["python", "-m", "workers.entrypoints.alarm_event_processor"]
           env:
             - name: WORKER_AWS_REGION
@@ -43,7 +42,7 @@ spec:
             - name: WORKER_DB_SECRET_ARN
               value: ${WORKER_DB_SECRET_ARN}
             - name: WORKER_SQS_QUEUE_URL
-              value: ${WORKER_SQS_QUEUE_URL}
+              value: ${ALARM_QUEUE_URL}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

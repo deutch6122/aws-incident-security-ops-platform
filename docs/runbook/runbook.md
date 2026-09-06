@@ -2,6 +2,8 @@
 
 design.md の「Error Handling / 障害時の考慮 / コスト最適化（撤去）」を要約する（Req 26.1, 26.3）。実装済みの内容（監視 module / seed・deploy スクリプト / A→B 連携）を反映する。
 
+構築・撤去の実行時は [Parameter Sheet](../operation/aws-resource-parameter-sheet.xlsx) と [詳細AWS構築手順書](../operation/aws-build-procedure.md) を正とする。特にdestroyは同手順14の12項目確認と承認を完了してから行う。
+
 ## 障害時対応
 
 | 障害 | 影響と挙動 | 対応 |
@@ -86,4 +88,4 @@ App_Deploy（`scripts/deploy-*.sh`）は既定 dry-run。実行は `--execute` �
 4. Bootstrap を最後に手動削除（state S3 / artifact S3 を空にしてから、DynamoDB lock table があれば併せて削除）。
 5. 残存確認（CloudWatch Logs / Secrets Manager / WAF Web ACL の取り残しがないか）。
 
-> App の停止は `scripts/deploy-*.sh` ではなく、ECS service の desired_count=0 / EKS の `kubectl delete -f apps/eks-workers/k8s/` / CloudFront 無効化で行う。`terraform destroy` は本タスクでは実行せず、実施時は README「削除（撤去）手順」に従う。
+> App の停止は `scripts/deploy-*.sh` ではなく、ECS desired_count=0の承認付きPipeline、EKS workload削除、CloudFront無効化で行う。`terraform destroy` は詳細AWS構築手順書の手順14でdestroy planを確認し、破壊操作の明示承認後だけ実行する。
