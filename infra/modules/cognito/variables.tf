@@ -41,3 +41,50 @@ variable "aws_region" {
   type        = string
   default     = null
 }
+
+variable "cognito_domain_prefix" {
+  description = "Globally unique Cognito Hosted UI domain prefix. Defaults to <name_prefix>-portal."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.cognito_domain_prefix == null || can(regex(
+      "(^[a-z0-9]$)|(^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$)",
+      var.cognito_domain_prefix,
+    ))
+    error_message = "cognito_domain_prefix must contain 1-63 lowercase letters, digits, or interior hyphens."
+  }
+}
+
+variable "cognito_callback_urls" {
+  description = "OAuth authorization-code callback URLs. Replace the localhost default with the final HTTPS CloudFront URL."
+  type        = list(string)
+  default     = ["http://localhost:5173/callback"]
+
+  validation {
+    condition = length(var.cognito_callback_urls) > 0 && alltrue([
+      for url in var.cognito_callback_urls : can(regex("^(https://|http://localhost(?::[0-9]+)?/)", url))
+    ])
+    error_message = "cognito_callback_urls must contain at least one HTTPS URL or localhost development URL."
+  }
+}
+
+variable "cognito_logout_urls" {
+  description = "OAuth sign-out redirect URLs. Replace the localhost default with the final HTTPS CloudFront URL."
+  type        = list(string)
+  default     = ["http://localhost:5173/"]
+
+  validation {
+    condition = length(var.cognito_logout_urls) > 0 && alltrue([
+      for url in var.cognito_logout_urls : can(regex("^(https://|http://localhost(?::[0-9]+)?/)", url))
+    ])
+    error_message = "cognito_logout_urls must contain at least one HTTPS URL or localhost development URL."
+  }
+}
+
+variable "cognito_keep_localhost_urls" {
+  description = "Retain localhost callback/logout URLs in addition to supplied URLs after the final HTTPS domain is known."
+  type        = bool
+  default     = false
+}

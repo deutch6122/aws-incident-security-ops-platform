@@ -14,9 +14,10 @@ class Settings(BaseSettings):
     app_name: str = "Product_A Backend API"
     aws_region: str = "ap-northeast-1"
     db_secret_arn: str | None = None
+    db_name: str | None = None
     internal_bearer_token: SecretStr | None = None
 
-    @field_validator("aws_region", "db_secret_arn")
+    @field_validator("aws_region", "db_secret_arn", "db_name")
     @classmethod
     def validate_non_empty_text(cls, value: str | None) -> str | None:
         if value is None:

@@ -18,9 +18,14 @@ output "target_group_arn" {
   value       = aws_lb_target_group.this.arn
 }
 
-output "listener_arn" {
-  description = "ARN of the HTTPS (443) listener, or null when no certificate_arn was supplied."
-  value       = try(aws_lb_listener.https[0].arn, null)
+output "https_listener_arn" {
+  description = "ARN of the HTTPS (443) listener. Always present because certificate_arn is required and the HTTPS listener is created unconditionally."
+  value       = aws_lb_listener.https.arn
+}
+
+output "http_listener_arn" {
+  description = "ARN of the HTTP (80) redirect listener that returns HTTP_301 to HTTPS."
+  value       = aws_lb_listener.http.arn
 }
 
 output "security_group_id" {

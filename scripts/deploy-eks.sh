@@ -1,17 +1,11 @@
 #!/usr/bin/env bash
 #
-# deploy-eks.sh — App_Deploy for EKS workers (Product_A / EKS Fargate).
+# deploy-eks.sh — App_Deploy for three EKS Fargate workloads.
 #
-# Task 19.1 — Requirements 22.1, 22.3. Deploys ONLY the application layer:
-#   docker build -> ECR push -> kubectl apply (k8s manifests).
-# Separate from the infra terraform apply (Req 22.1); NEVER calls terraform.
-#
-# Safety design:
-#   * DEFAULT IS DRY-RUN (print-only). Without --execute every real command
-#     (docker / aws / kubectl) is only echoed, never run. The dry-run path
-#     never invokes docker, the AWS CLI, or kubectl.
-#   * Real ARNs / account ids / domains / secrets are NOT embedded. Everything
-#     comes from environment variables / placeholders.
+# The script never invokes Terraform. It builds one deterministic worker code
+# base, tags it into three dedicated ECR repositories, renders Kubernetes
+# manifests to a temporary directory, rejects unresolved placeholders, and only
+# performs external commands when --execute is explicitly supplied.
 #
 set -euo pipefail
 
@@ -21,40 +15,58 @@ usage() {
   cat <<'USAGE'
 Usage: deploy-eks.sh [--execute] [--tag <image-tag>] [-h|--help]
 
-Deploy EKS workers: docker build -> ECR push -> kubectl apply. App_Deploy
-only; does NOT run terraform.
+Build and deploy the three EKS worker workloads. The default is dry-run; the
+script does not call Docker, AWS CLI, or kubectl unless --execute is supplied.
+Terraform is never called.
 
 Options:
-  --execute        Run the real docker/aws/kubectl commands. Omitted => dry-run.
-  --dry-run        Explicitly dry-run (this is the default).
-  --tag <tag>      Image tag to build/push (default: value of IMAGE_TAG or "latest").
+  --execute        Run Docker, AWS CLI, and kubectl commands.
+  --dry-run        Print commands only (default).
+  --tag <tag>      Image tag (default: IMAGE_TAG or "latest").
   -h, --help       Show this help and exit.
 
 Required environment variables:
-  AWS_REGION       AWS region (e.g. ap-northeast-1).
-  AWS_ACCOUNT_ID   AWS account id that owns the ECR registry.
-  ECR_REPO         ECR repository name for eks-workers (e.g. ops-platform-dev-eks-workers).
-  EKS_CLUSTER      EKS cluster name (e.g. ops-platform-dev-eks).
+  AWS_REGION
+  AWS_ACCOUNT_ID
+  EKS_CLUSTER
+  ALARM_ECR_REPO
+  FINDING_ECR_REPO
+  SUMMARY_ECR_REPO
+  EKS_ALARM_WORKER_ROLE_ARN
+  EKS_FINDING_WORKER_ROLE_ARN
+  EKS_CRONJOB_ROLE_ARN
+  WORKER_DB_SECRET_ARN
+  ALARM_QUEUE_URL
+  FINDING_QUEUE_URL
+  WORKER_LOG_GROUP_NAME
+  PORTAL_REPORTS_BUCKET
+  PORTAL_REPORT_METADATA_TABLE
+  PORTAL_PUBLIC_STATUS_ITEMS_TABLE
 
 Optional environment variables:
-  IMAGE_TAG        Default image tag when --tag is not given (default: latest).
-  APP_DIR          Path to the eks-workers build context (default: apps/eks-workers).
-  K8S_DIR          Directory of k8s manifests to apply (default: apps/eks-workers/k8s).
-  K8S_NAMESPACE    Namespace for the workers (default: workers).
+  IMAGE_TAG        Default image tag when --tag is omitted (default: latest).
+  APP_DIR          Worker build context (default: apps/eks-workers).
+  K8S_DIR          Source manifest directory (default: apps/eks-workers/k8s).
 
-Examples:
-  # dry-run (default): prints the commands, touches nothing
+Example (dry-run):
   AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
-    ECR_REPO=ops-platform-dev-eks-workers \
     EKS_CLUSTER=ops-platform-dev-eks \
+    ALARM_ECR_REPO=ops-platform-dev-alarm-event-processor \
+    FINDING_ECR_REPO=ops-platform-dev-security-finding-worker \
+    SUMMARY_ECR_REPO=ops-platform-dev-monthly-summary-cronjob \
+    EKS_ALARM_WORKER_ROLE_ARN=<alarm-role-arn> \
+    EKS_FINDING_WORKER_ROLE_ARN=<finding-role-arn> \
+    EKS_CRONJOB_ROLE_ARN=<cronjob-role-arn> \
+    WORKER_DB_SECRET_ARN=<database-secret-arn> \
+    ALARM_QUEUE_URL=<alarm-queue-url> FINDING_QUEUE_URL=<finding-queue-url> \
+    WORKER_LOG_GROUP_NAME=/ops-platform-dev/eks/workers \
+    PORTAL_REPORTS_BUCKET=<reports-bucket> \
+    PORTAL_REPORT_METADATA_TABLE=ops-platform-dev-report-metadata \
+    PORTAL_PUBLIC_STATUS_ITEMS_TABLE=ops-platform-dev-public-status-items \
     scripts/deploy-eks.sh --tag v1
-
-  # actually deploy (explicit opt-in)
-  ... same env ... scripts/deploy-eks.sh --tag v1 --execute
 USAGE
 }
 
-# --- argument parsing --------------------------------------------------------
 EXECUTE=0
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 while [[ $# -gt 0 ]]; do
@@ -69,9 +81,7 @@ done
 
 APP_DIR="${APP_DIR:-apps/eks-workers}"
 K8S_DIR="${K8S_DIR:-apps/eks-workers/k8s}"
-K8S_NAMESPACE="${K8S_NAMESPACE:-workers}"
 
-# --- required-env validation -------------------------------------------------
 require_env() {
   local missing=()
   local name
@@ -87,10 +97,33 @@ require_env() {
   fi
 }
 
-require_env AWS_REGION AWS_ACCOUNT_ID ECR_REPO EKS_CLUSTER
+require_env \
+  AWS_REGION AWS_ACCOUNT_ID EKS_CLUSTER \
+  ALARM_ECR_REPO FINDING_ECR_REPO SUMMARY_ECR_REPO \
+  EKS_ALARM_WORKER_ROLE_ARN EKS_FINDING_WORKER_ROLE_ARN EKS_CRONJOB_ROLE_ARN \
+  WORKER_DB_SECRET_ARN ALARM_QUEUE_URL FINDING_QUEUE_URL WORKER_LOG_GROUP_NAME \
+  PORTAL_REPORTS_BUCKET PORTAL_REPORT_METADATA_TABLE PORTAL_PUBLIC_STATUS_ITEMS_TABLE
 
-# --- run helper: dry-run echoes, --execute runs -----------------------------
-# In dry-run the real command is ONLY printed (docker/aws/kubectl never invoked).
+if [[ "$ALARM_ECR_REPO" == "$FINDING_ECR_REPO" || \
+      "$ALARM_ECR_REPO" == "$SUMMARY_ECR_REPO" || \
+      "$FINDING_ECR_REPO" == "$SUMMARY_ECR_REPO" ]]; then
+  echo "$SCRIPT_NAME: ALARM_ECR_REPO, FINDING_ECR_REPO, and SUMMARY_ECR_REPO must be distinct." >&2
+  exit 1
+fi
+
+if [[ ! -d "$APP_DIR" ]]; then
+  echo "$SCRIPT_NAME: APP_DIR does not exist: $APP_DIR" >&2
+  exit 1
+fi
+if [[ ! -d "$K8S_DIR" ]]; then
+  echo "$SCRIPT_NAME: K8S_DIR does not exist: $K8S_DIR" >&2
+  exit 1
+fi
+if ! command -v envsubst >/dev/null 2>&1; then
+  echo "$SCRIPT_NAME: envsubst is required to render manifests (install gettext)." >&2
+  exit 1
+fi
+
 run() {
   if [[ "$EXECUTE" -eq 1 ]]; then
     echo "+ $*"
@@ -101,27 +134,76 @@ run() {
 }
 
 REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-IMAGE_URI="${REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+export ALARM_WORKER_IMAGE="${REGISTRY}/${ALARM_ECR_REPO}:${IMAGE_TAG}"
+export FINDING_WORKER_IMAGE="${REGISTRY}/${FINDING_ECR_REPO}:${IMAGE_TAG}"
+export SUMMARY_CRONJOB_IMAGE="${REGISTRY}/${SUMMARY_ECR_REPO}:${IMAGE_TAG}"
+
+RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/deploy-eks.XXXXXX")"
+cleanup() {
+  rm -rf "$RENDER_DIR"
+}
+trap cleanup EXIT
+
+# Restrict envsubst to the approved deployment contract. This prevents an
+# unrelated shell variable in a manifest from being expanded accidentally.
+ENV_SUBST_VARS='${AWS_REGION} ${ALARM_WORKER_IMAGE} ${FINDING_WORKER_IMAGE} ${SUMMARY_CRONJOB_IMAGE} ${EKS_ALARM_WORKER_ROLE_ARN} ${EKS_FINDING_WORKER_ROLE_ARN} ${EKS_CRONJOB_ROLE_ARN} ${WORKER_DB_SECRET_ARN} ${ALARM_QUEUE_URL} ${FINDING_QUEUE_URL} ${WORKER_LOG_GROUP_NAME} ${PORTAL_REPORTS_BUCKET} ${PORTAL_REPORT_METADATA_TABLE} ${PORTAL_PUBLIC_STATUS_ITEMS_TABLE}'
+
+shopt -s nullglob
+manifest_files=("$K8S_DIR"/*.yaml)
+shopt -u nullglob
+if [[ ${#manifest_files[@]} -eq 0 ]]; then
+  echo "$SCRIPT_NAME: no YAML manifests found in $K8S_DIR" >&2
+  exit 1
+fi
+
+for source_file in "${manifest_files[@]}"; do
+  rendered_file="$RENDER_DIR/$(basename "$source_file")"
+  envsubst "$ENV_SUBST_VARS" < "$source_file" > "$rendered_file"
+done
+
+if grep -REn '\$\{[A-Za-z_][A-Za-z0-9_]*\}|REPLACE_WITH_[A-Za-z0-9_]+' "$RENDER_DIR" >&2; then
+  echo "$SCRIPT_NAME: unresolved placeholder found; nothing was deployed." >&2
+  exit 1
+fi
 
 if [[ "$EXECUTE" -eq 0 ]]; then
-  echo "[dry-run] deploy-eks: print-only. No docker/aws/kubectl call made. Re-run with --execute to deploy."
+  echo "[dry-run] deploy-eks: manifests rendered and validated; no docker/aws/kubectl call made."
 fi
-echo "[info] target image: ${IMAGE_URI}"
-echo "[info] EKS cluster: ${EKS_CLUSTER} (namespace: ${K8S_NAMESPACE})"
-echo "[info] manifests dir: ${K8S_DIR}"
+echo "[info] alarm image:   $ALARM_WORKER_IMAGE"
+echo "[info] finding image: $FINDING_WORKER_IMAGE"
+echo "[info] summary image: $SUMMARY_CRONJOB_IMAGE"
+echo "[info] EKS cluster:   $EKS_CLUSTER"
 
-# 1) docker build
-run docker build -t "${IMAGE_URI}" "${APP_DIR}"
+# One codebase is built once and tagged into three dedicated repositories.
+run docker build --platform linux/amd64 \
+  -t "$ALARM_WORKER_IMAGE" \
+  -t "$FINDING_WORKER_IMAGE" \
+  -t "$SUMMARY_CRONJOB_IMAGE" \
+  "$APP_DIR"
 
-# 2) ECR login + push
 run bash -c "aws ecr get-login-password --region '${AWS_REGION}' | docker login --username AWS --password-stdin '${REGISTRY}'"
-run docker push "${IMAGE_URI}"
+run docker push "$ALARM_WORKER_IMAGE"
+run docker push "$FINDING_WORKER_IMAGE"
+run docker push "$SUMMARY_CRONJOB_IMAGE"
+run aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER"
 
-# 3) refresh kubeconfig for the target cluster
-run aws eks update-kubeconfig --region "${AWS_REGION}" --name "${EKS_CLUSTER}"
-
-# 4) kubectl apply of the workers manifests
-run kubectl apply -n "${K8S_NAMESPACE}" -f "${K8S_DIR}"
+# Logging prerequisites must be applied before ServiceAccounts and workloads.
+apply_order=(
+  "00-namespace.yaml"
+  "40-fargate-logging.yaml"
+  "10-serviceaccounts.yaml"
+  "20-alarm-event-processor.yaml"
+  "21-security-finding-worker.yaml"
+  "30-monthly-summary-cronjob.yaml"
+)
+for manifest_name in "${apply_order[@]}"; do
+  rendered_file="$RENDER_DIR/$manifest_name"
+  if [[ ! -f "$rendered_file" ]]; then
+    echo "$SCRIPT_NAME: required manifest is missing: $K8S_DIR/$manifest_name" >&2
+    exit 1
+  fi
+  run kubectl apply -f "$rendered_file"
+done
 
 if [[ "$EXECUTE" -eq 1 ]]; then MODE="execute"; else MODE="dry-run"; fi
-echo "[done] deploy-eks completed (${MODE} mode). App_Deploy only; terraform not invoked."
+echo "[done] deploy-eks completed ($MODE mode). App_Deploy only; terraform not invoked."

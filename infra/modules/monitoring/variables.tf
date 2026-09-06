@@ -37,10 +37,16 @@ variable "aws_region" {
 # modules' outputs; the defaults are naming-convention placeholders so the
 # module plans standalone without embedding any real resource identity.
 # --------------------------------------------------------------------------- #
-variable "dlq_queue_name" {
-  description = "SQS DLQ name (QueueName dimension) alarmed on ApproximateNumberOfMessagesVisible > 0."
+variable "alarm_dlq_queue_name" {
+  description = "Alarm-event SQS DLQ name used by its dedicated depth alarm."
   type        = string
-  default     = "ops-platform-dev-events-dlq"
+  default     = "ops-platform-dev-alarm-dlq"
+}
+
+variable "finding_dlq_queue_name" {
+  description = "Security-finding SQS DLQ name used by its dedicated depth alarm."
+  type        = string
+  default     = "ops-platform-dev-finding-dlq"
 }
 
 variable "ecs_cluster_name" {
@@ -53,6 +59,36 @@ variable "ecs_service_name" {
   description = "ECS service name (ServiceName dimension) for CPU/Memory/RunningTaskCount alarms."
   type        = string
   default     = "ops-platform-dev-backend-api"
+}
+
+variable "eks_cluster_name" {
+  description = "EKS cluster name used by the Product_A Container Insights dashboard."
+  type        = string
+  default     = "ops-platform-dev-eks"
+}
+
+variable "monitoring_enable_sns_subscription" {
+  description = "Create the notification subscription when true."
+  type        = bool
+  default     = false
+}
+
+variable "monitoring_notification_endpoint" {
+  description = "SSM Parameter Store name containing the notification endpoint. This is a parameter name, never the endpoint value."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "monitoring_notification_protocol" {
+  description = "SNS subscription protocol. Email confirmation is an Operator-run Category C step."
+  type        = string
+  default     = "email"
+
+  validation {
+    condition     = contains(["email", "email-json", "https"], var.monitoring_notification_protocol)
+    error_message = "monitoring_notification_protocol must be email, email-json, or https."
+  }
 }
 
 variable "alb_arn_suffix" {

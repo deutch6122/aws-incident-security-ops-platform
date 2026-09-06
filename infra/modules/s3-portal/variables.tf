@@ -20,16 +20,17 @@ variable "common_tags" {
   }
 }
 
-# ARN of the CloudFront distribution allowed to read this bucket via OAC. The
-# bucket policy restricts s3:GetObject to the cloudfront.amazonaws.com service
-# principal AND the aws:SourceArn of exactly this distribution, so no other
-# CloudFront distribution (and no direct public request) can read objects.
-# Real ARNs are never committed; the dev root passes module.cloudfront output
-# (Task 13.3) and the default is an empty placeholder for validation only.
-variable "cloudfront_distribution_arn" {
-  description = "ARN of the CloudFront distribution permitted to read the bucket via OAC. Placeholder empty string until wired to the cloudfront module."
+# Region used as part of the deterministic bucket-name suffix
+# "<account-id>-<region>". The account id is read from a data source (never
+# committed as a literal). A real region string is not sensitive.
+variable "aws_region" {
+  description = "AWS region used to build the deterministic bucket-name suffix <account-id>-<region>."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = length(trimspace(var.aws_region)) > 0
+    error_message = "aws_region must be a non-empty string."
+  }
 }
 
 # Object key prefix under which Product_A places monthly report files via the

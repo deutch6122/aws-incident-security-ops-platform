@@ -47,6 +47,13 @@ def test_api_proxy_route_exists() -> None:
     assert re.search(r'route_key\s*=\s*"ANY /api/\{proxy\+\}"', block)
 
 
+def test_default_stage_is_fixed_and_auto_deployed() -> None:
+    block = _resource_block("aws_apigatewayv2_stage", "this")
+    assert 'name        = "$default"' in block or 'name = "$default"' in block
+    assert "auto_deploy = true" in block
+    assert 'variable "stage_name"' not in VARIABLES
+
+
 def test_cognito_jwt_authorizer_configured() -> None:
     block = _resource_block("aws_apigatewayv2_authorizer", "cognito_jwt")
     assert 'authorizer_type  = "JWT"' in block or 'authorizer_type = "JWT"' in block

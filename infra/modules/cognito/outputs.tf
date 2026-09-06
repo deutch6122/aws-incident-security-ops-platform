@@ -26,3 +26,13 @@ output "issuer_url" {
   description = "OIDC issuer URL for the User Pool, used by the API Gateway JWT authorizer."
   value       = "https://cognito-idp.${local.region}.amazonaws.com/${aws_cognito_user_pool.this.id}"
 }
+
+output "hosted_domain" {
+  description = "Fully qualified Cognito Hosted UI domain."
+  value       = "${aws_cognito_user_pool_domain.portal.domain}.auth.${local.region}.amazoncognito.com"
+}
+
+output "hosted_ui_base_url" {
+  description = "HTTPS base URL of the Cognito Hosted UI."
+  value       = "https://${aws_cognito_user_pool_domain.portal.domain}.auth.${local.region}.amazoncognito.com"
+}

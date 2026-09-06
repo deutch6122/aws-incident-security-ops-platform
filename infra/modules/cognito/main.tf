@@ -1,9 +1,26 @@
 data "aws_region" "current" {}
 
 locals {
-  region           = var.aws_region == null ? data.aws_region.current.name : var.aws_region
-  user_pool_name   = "${var.name_prefix}-user-pool"
-  app_client_name  = "${var.name_prefix}-portal-client"
+  region          = var.aws_region == null ? data.aws_region.current.name : var.aws_region
+  user_pool_name  = "${var.name_prefix}-user-pool"
+  app_client_name = "${var.name_prefix}-portal-client"
+  domain_prefix   = coalesce(var.cognito_domain_prefix, "${var.name_prefix}-portal")
+
+  localhost_callback_url = "http://localhost:5173/callback"
+  localhost_logout_url   = "http://localhost:5173/"
+  callback_urls = var.cognito_keep_localhost_urls ? distinct(concat(
+    var.cognito_callback_urls,
+    [local.localhost_callback_url],
+  )) : var.cognito_callback_urls
+  logout_urls = var.cognito_keep_localhost_urls ? distinct(concat(
+    var.cognito_logout_urls,
+    [local.localhost_logout_url],
+  )) : var.cognito_logout_urls
+}
+
+resource "aws_cognito_user_pool_domain" "portal" {
+  domain       = local.domain_prefix
+  user_pool_id = aws_cognito_user_pool.this.id
 }
 
 # Auth_Service for Product_B (public portal) Viewers (Requirement 9.1, 9.2).
@@ -52,13 +69,21 @@ resource "aws_cognito_user_pool" "this" {
 }
 
 # Public App Client used by the Portal static frontend (SPA). A browser client
-# cannot keep a secret, so no client secret is generated (generate_secret =
-# false). Auth flows are limited to the SRP and refresh-token flows.
+# cannot keep a secret, so no client secret is generated. The Hosted UI uses
+# the authorization-code flow; the SPA supplies PKCE code_challenge and
+# code_verifier values. The implicit flow is deliberately absent.
 resource "aws_cognito_user_pool_client" "portal" {
   name         = local.app_client_name
   user_pool_id = aws_cognito_user_pool.this.id
 
   generate_secret = false
+
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+  supported_identity_providers         = ["COGNITO"]
+  callback_urls                        = local.callback_urls
+  logout_urls                          = local.logout_urls
 
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
@@ -68,7 +93,7 @@ resource "aws_cognito_user_pool_client" "portal" {
   prevent_user_existence_errors = "ENABLED"
 
   access_token_validity  = 1
-  id_token_validity       = 1
+  id_token_validity      = 1
   refresh_token_validity = 30
 
   token_validity_units {

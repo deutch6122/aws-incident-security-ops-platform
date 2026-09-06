@@ -355,3 +355,251 @@ variable "aurora_final_snapshot_identifier" {
     error_message = "aurora_final_snapshot_identifier must be null or a lowercase RDS snapshot identifier beginning with a letter and at most 63 characters."
   }
 }
+
+# --------------------------------------------------------------------------- #
+# Backend internal bearer token secret (Task 3). The random value is generated
+# and stored only in Secrets Manager. The real value is never emitted to an
+# output, log, plaintext environment variable, tfvars, or README. Only the ARN
+# is wired into the IAM and ECS modules.
+# --------------------------------------------------------------------------- #
+variable "backend_bearer_secret_recovery_window_days" {
+  description = "Secrets Manager recovery window (days) for the Backend internal bearer token secret. 0 forces immediate deletion (dev convenience); 7-30 is recommended for recoverability."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.backend_bearer_secret_recovery_window_days == 0 || (var.backend_bearer_secret_recovery_window_days >= 7 && var.backend_bearer_secret_recovery_window_days <= 30)
+    error_message = "backend_bearer_secret_recovery_window_days must be 0 (immediate deletion) or between 7 and 30 days."
+  }
+}
+
+# --------------------------------------------------------------------------- #
+# Full-stack integration inputs (Task 27). Sensitive values are deliberately
+# absent: these are non-secret identifiers, reviewed network ranges, package
+# references, and operational feature switches.
+# --------------------------------------------------------------------------- #
+variable "application_image_tag" {
+  description = "Immutable tag used for the Backend and migration task definitions during the approved deployment phase."
+  type        = string
+  default     = "bootstrap-placeholder"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", var.application_image_tag))
+    error_message = "application_image_tag must be a valid Docker image tag."
+  }
+}
+
+variable "ecs_desired_count" {
+  description = "Backend ECS desired count. Keep at 0 for the first infrastructure apply; set to 1 only after images and migrations are ready."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = contains([0, 1], var.ecs_desired_count)
+    error_message = "ecs_desired_count must be 0 for first apply or 1 after the migration gate."
+  }
+}
+
+variable "alb_certificate_arn" {
+  description = "ACM certificate ARN in ap-northeast-1 for the ALB HTTPS listener."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:acm:ap-northeast-1:[0-9]{12}:certificate/", var.alb_certificate_arn))
+    error_message = "alb_certificate_arn must be an ap-northeast-1 ACM certificate ARN."
+  }
+}
+
+variable "alb_access_logs_prefix" {
+  description = "Non-empty S3 key prefix for ALB access logs."
+  type        = string
+  default     = "alb"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9][A-Za-z0-9/_-]*$", var.alb_access_logs_prefix))
+    error_message = "alb_access_logs_prefix must be a non-empty safe S3 key prefix."
+  }
+}
+
+variable "alb_access_logs_expiration_days" {
+  description = "Retention in days for ALB access-log objects."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.alb_access_logs_expiration_days >= 1
+    error_message = "alb_access_logs_expiration_days must be at least 1."
+  }
+}
+
+variable "alb_access_logs_force_destroy" {
+  description = "Allow Terraform to delete the ALB log bucket with objects. Keep false unless an approved dev teardown requires it."
+  type        = bool
+  default     = false
+}
+
+variable "portal_bucket_force_destroy" {
+  description = "Allow Terraform to delete Portal_Storage with objects. Keep false unless an approved dev teardown requires it."
+  type        = bool
+  default     = false
+}
+
+variable "eks_kubernetes_version" {
+  description = "EKS Kubernetes minor version; reconfirm Standard Support immediately before apply."
+  type        = string
+  default     = "1.36"
+
+  validation {
+    condition     = can(regex("^1\\.[0-9]{2}$", var.eks_kubernetes_version))
+    error_message = "eks_kubernetes_version must be a Kubernetes minor version such as 1.36."
+  }
+}
+
+variable "eks_public_access_cidrs" {
+  description = "Reviewed operator CIDRs allowed to reach the public EKS API endpoint."
+  type        = list(string)
+  default     = ["203.0.113.0/24"]
+
+  validation {
+    condition = (
+      length(var.eks_public_access_cidrs) > 0 &&
+      alltrue([for cidr in var.eks_public_access_cidrs : can(cidrhost(cidr, 0))]) &&
+      !contains(var.eks_public_access_cidrs, "0.0.0.0/0") &&
+      !contains(var.eks_public_access_cidrs, "::/0")
+    )
+    error_message = "eks_public_access_cidrs must contain reviewed CIDRs and cannot contain a world-open range."
+  }
+}
+
+variable "eks_operator_principal_arn" {
+  description = "Reviewed IAM role or user ARN granted the EKS cluster access policy."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:(role|user)/", var.eks_operator_principal_arn))
+    error_message = "eks_operator_principal_arn must be an IAM role or user ARN."
+  }
+}
+
+variable "migration_launcher_trusted_principal_arns" {
+  description = "Reviewed IAM principals allowed to assume the migration launcher role."
+  type        = list(string)
+
+  validation {
+    condition = length(var.migration_launcher_trusted_principal_arns) > 0 && alltrue([
+      for arn in var.migration_launcher_trusted_principal_arns : can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:(role|user)/", arn))
+    ])
+    error_message = "migration_launcher_trusted_principal_arns must contain at least one IAM role or user ARN."
+  }
+}
+
+variable "lambda_package_s3_bucket" {
+  description = "Versioned bootstrap artifact bucket containing the Portal Lambda package."
+  type        = string
+}
+
+variable "lambda_package_s3_key" {
+  description = "Immutable Portal Lambda object key: lambda/<commit-sha>/portal-api.zip."
+  type        = string
+
+  validation {
+    condition     = can(regex("^lambda/[0-9a-f]{7,64}/portal-api\\.zip$", var.lambda_package_s3_key))
+    error_message = "lambda_package_s3_key must match lambda/<7-64 lowercase hex commit-sha>/portal-api.zip."
+  }
+}
+
+variable "lambda_package_s3_object_version" {
+  description = "Version ID of the approved Portal Lambda package object."
+  type        = string
+}
+
+variable "lambda_source_code_hash" {
+  description = "Base64 SHA-256 digest of the approved Portal Lambda package."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+/]{43}=$", var.lambda_source_code_hash))
+    error_message = "lambda_source_code_hash must be a base64-encoded SHA-256 digest."
+  }
+}
+
+variable "cognito_callback_urls" {
+  description = "OAuth callback URLs. Replace localhost with the final CloudFront HTTPS callback after the first apply."
+  type        = list(string)
+  default     = ["http://localhost:5173/callback"]
+}
+
+variable "cognito_logout_urls" {
+  description = "OAuth logout URLs. Replace localhost with the final CloudFront HTTPS URL after the first apply."
+  type        = list(string)
+  default     = ["http://localhost:5173/"]
+}
+
+variable "cognito_keep_localhost_urls" {
+  description = "Retain localhost URLs after final HTTPS URLs are configured."
+  type        = bool
+  default     = false
+}
+
+variable "cloudfront_price_class" {
+  description = "CloudFront geographic price class."
+  type        = string
+  default     = "PriceClass_200"
+
+  validation {
+    condition     = contains(["PriceClass_100", "PriceClass_200", "PriceClass_All"], var.cloudfront_price_class)
+    error_message = "cloudfront_price_class must be PriceClass_100, PriceClass_200, or PriceClass_All."
+  }
+}
+
+variable "waf_additional_managed_rule_groups" {
+  description = "Optional additional managed WAF rule groups beyond the common rule set."
+  type = list(object({
+    name        = string
+    vendor_name = string
+    priority    = number
+  }))
+  default = []
+}
+
+variable "waf_logging_enabled" {
+  description = "Enable WAF logs in us-east-1."
+  type        = bool
+  default     = true
+}
+
+variable "waf_kms_enabled" {
+  description = "Use a customer-managed KMS key for WAF logs when logging is enabled."
+  type        = bool
+  default     = true
+}
+
+variable "waf_log_retention_days" {
+  description = "WAF CloudWatch Logs retention period."
+  type        = number
+  default     = 30
+}
+
+variable "monitoring_enable_sns_subscription" {
+  description = "Create a monitoring SNS subscription using an endpoint fetched from SSM."
+  type        = bool
+  default     = false
+}
+
+variable "monitoring_notification_endpoint" {
+  description = "SSM parameter name containing the notification endpoint; never the endpoint value itself."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "monitoring_notification_protocol" {
+  description = "SNS notification protocol."
+  type        = string
+  default     = "email"
+
+  validation {
+    condition     = contains(["email", "email-json", "https"], var.monitoring_notification_protocol)
+    error_message = "monitoring_notification_protocol must be email, email-json, or https."
+  }
+}

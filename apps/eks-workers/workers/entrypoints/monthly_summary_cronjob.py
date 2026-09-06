@@ -4,12 +4,12 @@ Single-shot job: determine the target period, aggregate the incidents /
 findings / alarm_events in that month, and upsert monthly_summaries keyed on
 period. Exits when done (CronJob semantics).
 
-A->B linkage (Requirement 14): this CronJob is the ONLY execution subject that
+A->B linkage: this CronJob is the ONLY execution subject that
 reflects the (non-sensitive) monthly summary into Product_B -- a report file in
 Portal_Storage reports/*, plus report_metadata and public_status_items. The
-linkage runs only when the Product_B targets are configured (PORTAL_REPORTS_
-BUCKET etc.); otherwise it is skipped so the summary job still succeeds. The
-linkage is one-way A -> B: it never reads or writes Product_A from Product_B.
+three Product_B targets are mandatory. Missing configuration or failure of any
+target write makes the job exit non-zero and identifies the failed target
+without logging payload data. The linkage is one-way A -> B.
 
 All AWS/DB resources are built lazily.
 """
@@ -28,7 +28,7 @@ from workers.config import WorkerSettings
 from workers.db.models import AlarmEvent, Finding, Incident
 from workers.db.repositories import SqlMonthlySummaryRepository
 from workers.db.session import WorkerDatabase
-from workers.linkage import LinkageReport, link_summary_to_portal
+from workers.linkage import LinkageReport, PortalLinkageError, link_summary_to_portal
 from workers.portal_adapters import (
     DynamoPublicStatusWriter,
     DynamoReportMetadataWriter,
@@ -86,17 +86,13 @@ def run(database: WorkerDatabase, period: str) -> MonthlySummaryRecord:
 
 def link_to_portal(
     record: MonthlySummaryRecord, targets: PortalTargets | None = None
-) -> LinkageReport | None:
+) -> LinkageReport:
     """Reflect the non-sensitive summary into Product_B (one-way A -> B).
 
-    Skips silently when Portal_Storage is not configured so the summary job still
-    succeeds in environments without Product_B wiring. This is the only place the
-    linkage is triggered (CronJob-limited execution subject, Requirement 14).
+    All targets are mandatory. This is the only place the linkage is triggered.
     """
     targets = targets or PortalTargets.from_env()
-    if not targets.reports_bucket:
-        logger.info("portal linkage skipped: PORTAL_REPORTS_BUCKET not configured")
-        return None
+    targets.validate()
 
     report = link_summary_to_portal(
         record,
@@ -122,7 +118,11 @@ def main() -> int:
     database = WorkerDatabase(settings)
     period = resolve_period()
     record = run(database, period)
-    link_to_portal(record)
+    try:
+        link_to_portal(record)
+    except (PortalLinkageError, RuntimeError) as exc:
+        logger.error("monthly summary portal linkage failed: %s", exc)
+        return 1
     return 0
 
 

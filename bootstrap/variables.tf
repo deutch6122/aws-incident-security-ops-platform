@@ -73,3 +73,77 @@ variable "additional_tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "artifact_retention_days" {
+  description = "Days to retain pipeline plans and Lambda package versions."
+  type        = number
+  default     = 30
+}
+
+variable "pipeline_alb_certificate_arn_parameter_name" {
+  type    = string
+  default = "/ops-platform/dev/alb-certificate-arn"
+}
+
+variable "pipeline_eks_operator_principal_arn_parameter_name" {
+  type    = string
+  default = "/ops-platform/dev/eks-operator-principal-arn"
+}
+
+variable "pipeline_migration_launcher_principals_parameter_name" {
+  type    = string
+  default = "/ops-platform/dev/migration-launcher-principal-arns"
+}
+
+variable "pipeline_eks_public_access_cidrs_parameter_name" {
+  type    = string
+  default = "/ops-platform/dev/eks-public-access-cidrs"
+}
+
+variable "pipeline_application_image_tag_parameter_name" {
+  description = "SSM parameter containing the immutable image tag used by ECS and the migration task definition."
+  type        = string
+  default     = "/ops-platform/dev/application-image-tag"
+}
+
+variable "pipeline_ecs_desired_count_parameter_name" {
+  description = "SSM parameter containing the approved ECS desired count (0 before migration, 1 after migration)."
+  type        = string
+  default     = "/ops-platform/dev/ecs-desired-count"
+}
+
+variable "pipeline_cognito_callback_urls_parameter_name" {
+  description = "SSM parameter containing the JSON array of approved Cognito callback URLs."
+  type        = string
+  default     = "/ops-platform/dev/cognito-callback-urls"
+}
+
+variable "pipeline_cognito_logout_urls_parameter_name" {
+  description = "SSM parameter containing the JSON array of approved Cognito logout URLs."
+  type        = string
+  default     = "/ops-platform/dev/cognito-logout-urls"
+}
+
+variable "pipeline_cognito_keep_localhost_urls_parameter_name" {
+  description = "SSM parameter containing whether localhost OAuth URLs remain enabled."
+  type        = string
+  default     = "/ops-platform/dev/cognito-keep-localhost-urls"
+}
+
+variable "pipeline_monitoring_enable_sns_subscription_parameter_name" {
+  description = "SSM parameter containing whether the monitoring SNS subscription is enabled."
+  type        = string
+  default     = "/ops-platform/dev/monitoring-enable-sns-subscription"
+}
+
+variable "pipeline_monitoring_notification_parameter_name_parameter_name" {
+  description = "SSM parameter whose value is the SSM parameter name containing the notification endpoint."
+  type        = string
+  default     = "/ops-platform/dev/monitoring-notification-parameter-name"
+}
+
+variable "pipeline_monitoring_notification_protocol_parameter_name" {
+  description = "SSM parameter containing the SNS subscription protocol."
+  type        = string
+  default     = "/ops-platform/dev/monitoring-notification-protocol"
+}

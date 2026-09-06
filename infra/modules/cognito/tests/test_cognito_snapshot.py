@@ -51,6 +51,31 @@ def test_app_client_has_no_client_secret() -> None:
     assert "generate_secret = true" not in MAIN
 
 
+def test_hosted_ui_uses_code_flow_for_public_pkce_client() -> None:
+    block = _resource_block("aws_cognito_user_pool_client", "portal")
+    assert 'allowed_oauth_flows                  = ["code"]' in block
+    assert "allowed_oauth_flows_user_pool_client = true" in block
+    assert 'supported_identity_providers         = ["COGNITO"]' in block
+    assert "implicit" not in block.lower()
+    assert "callback_urls" in block and "logout_urls" in block
+    assert 'resource "aws_cognito_user_pool_domain" "portal"' in MAIN
+
+
+def test_callback_and_logout_lists_are_nonempty_and_validated() -> None:
+    for name, expected in (
+        ("cognito_callback_urls", "http://localhost:5173/callback"),
+        ("cognito_logout_urls", "http://localhost:5173/"),
+    ):
+        match = re.search(rf'variable "{name}" \{{(.*?)\n\}}', VARIABLES, re.DOTALL)
+        assert match, f"{name} variable missing"
+        body = match.group(1)
+        assert expected in body
+        assert "length(var." in body and "> 0" in body
+        assert "alltrue" in body
+    keep = re.search(r'variable "cognito_keep_localhost_urls" \{(.*?)\n\}', VARIABLES, re.DOTALL)
+    assert keep and "default     = false" in keep.group(1)
+
+
 def test_user_pool_has_password_policy_and_recovery() -> None:
     block = _resource_block("aws_cognito_user_pool", "this")
     assert "password_policy {" in block
@@ -106,6 +131,8 @@ def test_outputs_publish_ids_arn_endpoint_and_issuer() -> None:
         "user_pool_endpoint",
         "app_client_id",
         "issuer_url",
+        "hosted_domain",
+        "hosted_ui_base_url",
     ):
         assert f'output "{name}"' in OUTPUTS, f"output {name} missing"
 

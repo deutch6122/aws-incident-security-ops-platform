@@ -16,7 +16,7 @@ CloudFront は本 API を custom origin として参照する。
 | `aws_apigatewayv2_integration` | (lambda) | AWS_PROXY。Lambda invoke ARN を変数で受ける |
 | `aws_apigatewayv2_route` | `ANY /api/{proxy+}` | JWT authorizer 適用 |
 | `aws_lambda_permission` | `AllowPortalApiGatewayInvoke` | API Gateway → Portal_API Lambda invoke の最小権限 |
-| `aws_apigatewayv2_stage` | `<stage_name>`（既定 api） | auto_deploy |
+| `aws_apigatewayv2_stage` | `$default` | auto_deploy |
 
 命名は `ops-platform-dev-<resource>` 準拠。`common_tags` を API / Stage へ付与する。
 
@@ -31,6 +31,8 @@ CloudFront は本 API を custom origin として参照する。
   Portal_API Lambda の invoke ARN を変数で受ける。Lambda 本体は Task 15 で実装。
 - **ルート `ANY /api/{proxy+}`** に authorizer を適用（`authorization_type=JWT`）。
   `/api/` 配下の全リクエストが有効トークンを要求される（Requirement 9.3）。
+- **Stage は `$default` 固定**で `auto_deploy=true`。CloudFrontから受けた`/api/*`を
+  stage prefixなしでそのままrouteへ渡す。
 - **Lambda invoke 許可**（`aws_lambda_permission`）: API Gateway が Portal_API
   Lambda を呼び出す最小権限を付与する。`principal=apigateway.amazonaws.com`、
   `action=lambda:InvokeFunction`。`source_arn` は当該 API の execution ARN
@@ -55,7 +57,6 @@ Product_A（Backend API / ECS / ALB / Aurora）へ直接接続しない。
 - `jwt_audiences`（必須、非空リスト。App Client id 群）
 - `lambda_invoke_arn`（必須。lambda `lambda_invoke_arn`。AWS_PROXY 統合用）
 - `lambda_function_name`（必須。lambda `lambda_function_name`。`aws_lambda_permission` 用）
-- `stage_name`（既定 `api`）
 
 ## 出力
 
@@ -63,11 +64,9 @@ Product_A（Backend API / ECS / ALB / Aurora）へ直接接続しない。
 - `api_domain_name`（CloudFront origin 用 host）
 - `authorizer_id` / `stage_name`
 
-## dev root への配線について（後続依存）
+## dev root 配線
 
-`infra/environments/dev` への配線は、cognito（Task 14.1）と lambda（Task 14.3）の
-出力、および CloudFront origin の配線先確定後に行う。既存モジュールと同じ「実装した
-ものだけ配線」方針に従い、Task 14 時点では dev ルートへは配線しない。
+dev rootはCognito issuer/client IDとLambda invoke ARN/function名を本moduleへ配線済みです。API endpoint/domainはCloudFrontの`/api/*` originへ渡し、pathを変更せず転送します。
 
 ## テスト
 

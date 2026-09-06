@@ -97,13 +97,12 @@ variable "app_port" {
 }
 
 variable "certificate_arn" {
-  description = "ACM certificate ARN for the HTTPS (443) listener. May be null in dev when a certificate has not yet been issued; the listener is then not created and the ALB must not be exposed until a certificate is provided."
+  description = "ACM certificate ARN for the mandatory HTTPS (443) listener. Required (no default): the HTTPS listener is always created. The real ARN is supplied at wiring time via the Parameter Sheet and is never committed to the repository."
   type        = string
-  default     = null
 
   validation {
-    condition     = var.certificate_arn == null || can(regex("^arn:aws[a-z-]*:acm:", var.certificate_arn))
-    error_message = "certificate_arn must be null or a valid ACM certificate ARN."
+    condition     = can(regex("^arn:aws[a-z-]*:acm:[a-z0-9-]+:[0-9]{12}:certificate/[0-9a-fA-F-]+$", var.certificate_arn))
+    error_message = "certificate_arn must be a valid ACM certificate ARN (arn:aws:acm:<region>:<account>:certificate/<id>)."
   }
 }
 

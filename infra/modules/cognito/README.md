@@ -14,16 +14,20 @@ JWT Authorizer（Task 14.2）が検証する。
 | --- | --- | --- |
 | `aws_cognito_user_pool` | `<name_prefix>-user-pool` | email サインイン、email 検証、パスワードポリシー |
 | `aws_cognito_user_pool_client` | `<name_prefix>-portal-client` | public App Client。**client secret を作成しない** |
+| `aws_cognito_user_pool_domain` | `<domain_prefix>` | authorization code + PKCE 用 Hosted UI domain |
 
 命名は `ops-platform-dev-<resource>` 準拠。`common_tags` を User Pool へ付与する
 （App Client は tags 非対応）。
 
 ## 設計判断
 
-- **App Client は client secret なし**（`generate_secret = false`）。ブラウザ上の
-  SPA はシークレットを安全に保持できないため、public クライアントとして構成し、
-  auth flow は SRP と refresh token に限定する（`prevent_user_existence_errors`
-  有効）。
+- **App Client は client secret なし**（`generate_secret = false`）。OAuth flow は
+  authorization code のみを許可し、SPA が PKCE の challenge/verifier を送る。implicit
+  grant は許可しない。scope は `openid email profile`、identity provider は Cognito。
+- callback/logout URL は非空を必須化する。初回値は
+  `http://localhost:5173/callback` / `http://localhost:5173/`。CloudFront domain 確定後は
+  HTTPS URL に置換し、`cognito_keep_localhost_urls=false`（既定）なら localhost を追加保持
+  しない。
 - **パスワードポリシー**（MVP 安全最小）: 最小長 `password_minimum_length`（既定 8）
   ＋小文字/大文字/数字/記号を必須。
 - **account recovery** は verified_email のみ（phone フォールバックなし）。
@@ -45,18 +49,20 @@ JWT Authorizer（Task 14.2）が検証する。
 - `common_tags`（必須）
 - `password_minimum_length`（既定 8、範囲 8〜99）
 - `aws_region`（既定 null＝provider リージョン。issuer_url 構築にのみ使用）
+- `cognito_domain_prefix`（既定 `<name_prefix>-portal`）
+- `cognito_callback_urls` / `cognito_logout_urls`（非空）
+- `cognito_keep_localhost_urls`（既定 false）
 
 ## 出力
 
 - `user_pool_id` / `user_pool_arn` / `user_pool_endpoint`
 - `app_client_id`
 - `issuer_url`（API Gateway JWT Authorizer の issuer に使用）
+- `hosted_domain` / `hosted_ui_base_url`
 
-## dev root への配線について（後続依存）
+## dev root 配線
 
-`infra/environments/dev` への配線は、Portal_API（Task 15）や CloudFront→API Gateway
-の配線先確定後に行う。既存モジュールと同じ「実装したものだけ配線」方針に従い、Task 14
-時点では dev ルートへは配線しない。
+dev rootへ配線済みです。初回はlocalhost callback/logoutで作成し、CloudFront domain確定後にSSMのHTTPS URLを更新して新しいplanを承認します。最終構成では`cognito_keep_localhost_urls=false`とします。
 
 ## テスト
 

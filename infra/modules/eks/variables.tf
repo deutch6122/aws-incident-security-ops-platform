@@ -20,14 +20,14 @@ variable "common_tags" {
   }
 }
 
-variable "cluster_version" {
-  description = "EKS control plane Kubernetes version, for example 1.30."
+variable "eks_kubernetes_version" {
+  description = "EKS control-plane Kubernetes version. Reconfirm standard support immediately before apply."
   type        = string
-  default     = "1.30"
+  default     = "1.36"
 
   validation {
-    condition     = can(regex("^1\\.(2[6-9]|3[0-9])$", var.cluster_version))
-    error_message = "cluster_version must be a supported EKS minor version such as 1.28, 1.29, or 1.30."
+    condition     = can(regex("^1\\.[0-9]{2}$", var.eks_kubernetes_version))
+    error_message = "eks_kubernetes_version must be a Kubernetes minor version such as 1.36."
   }
 }
 
@@ -64,16 +64,25 @@ variable "db_secret_arn" {
   }
 }
 
-# Worker SQS queue ARNs. These are placeholders wired once the messaging module
-# (Task 11) publishes real queue ARNs. The eks-worker-role is scoped to receive
-# and delete on exactly these ARNs.
-variable "sqs_queue_arns" {
-  description = "SQS queue ARNs the worker role may receive from and delete on (messaging module output). Placeholders until Task 11 wiring."
-  type        = list(string)
+# Each worker receives one queue ARN. Its IRSA policy is scoped to receive and
+# delete messages from only that workload's queue.
+variable "alarm_queue_arn" {
+  description = "Alarm queue ARN consumed only by the alarm worker."
+  type        = string
 
   validation {
-    condition     = length(var.sqs_queue_arns) >= 1 && alltrue([for arn in var.sqs_queue_arns : can(regex("^arn:aws[a-z-]*:sqs:", arn))])
-    error_message = "sqs_queue_arns must each be a valid SQS queue ARN."
+    condition     = can(regex("^arn:aws[a-z-]*:sqs:", var.alarm_queue_arn))
+    error_message = "alarm_queue_arn must be a valid SQS queue ARN."
+  }
+}
+
+variable "finding_queue_arn" {
+  description = "Finding queue ARN consumed only by the finding worker."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:sqs:", var.finding_queue_arn))
+    error_message = "finding_queue_arn must be a valid SQS queue ARN."
   }
 }
 
@@ -88,14 +97,25 @@ variable "worker_namespace" {
   }
 }
 
-variable "worker_service_account_name" {
-  description = "ServiceAccount name bound to eks-worker-role via the OIDC trust policy sub condition."
+variable "alarm_worker_service_account_name" {
+  description = "ServiceAccount bound only to the alarm worker IRSA role."
   type        = string
-  default     = "eks-worker"
+  default     = "eks-alarm-worker"
 
   validation {
-    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.worker_service_account_name))
-    error_message = "worker_service_account_name must be a valid Kubernetes ServiceAccount name."
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.alarm_worker_service_account_name))
+    error_message = "alarm_worker_service_account_name must be a valid Kubernetes ServiceAccount name."
+  }
+}
+
+variable "finding_worker_service_account_name" {
+  description = "ServiceAccount bound only to the finding worker IRSA role."
+  type        = string
+  default     = "eks-finding-worker"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.finding_worker_service_account_name))
+    error_message = "finding_worker_service_account_name must be a valid Kubernetes ServiceAccount name."
   }
 }
 
@@ -122,14 +142,58 @@ variable "endpoint_public_access" {
   default     = true
 }
 
-variable "public_access_cidrs" {
+variable "eks_public_access_cidrs" {
   description = "CIDR blocks allowed to reach the public API endpoint when endpoint_public_access is true. Restrict to reviewed operator ranges."
   type        = list(string)
-  default     = ["0.0.0.0/0"]
 
   validation {
-    condition     = alltrue([for cidr in var.public_access_cidrs : can(cidrhost(cidr, 0))])
-    error_message = "public_access_cidrs must each be a valid CIDR block."
+    condition = (
+      length(var.eks_public_access_cidrs) > 0 &&
+      alltrue([for cidr in var.eks_public_access_cidrs : can(cidrhost(cidr, 0))]) &&
+      !contains(var.eks_public_access_cidrs, "0.0.0.0/0") &&
+      !contains(var.eks_public_access_cidrs, "::/0")
+    )
+    error_message = "eks_public_access_cidrs must be a non-empty valid CIDR list and must not contain 0.0.0.0/0 or ::/0."
+  }
+}
+
+variable "eks_operator_principal_arn" {
+  description = "Reviewed IAM principal ARN used by the dev root access entry in Task 27."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:(role|user)/", var.eks_operator_principal_arn))
+    error_message = "eks_operator_principal_arn must be an IAM role or user ARN."
+  }
+}
+
+variable "portal_reports_bucket_arn" {
+  description = "Portal S3 bucket ARN; cronjob may write only under reports/*."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:s3:::", var.portal_reports_bucket_arn))
+    error_message = "portal_reports_bucket_arn must be a valid S3 bucket ARN."
+  }
+}
+
+variable "report_metadata_table_arn" {
+  description = "DynamoDB report_metadata table ARN writable by the summary cronjob."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:dynamodb:", var.report_metadata_table_arn))
+    error_message = "report_metadata_table_arn must be a valid DynamoDB table ARN."
+  }
+}
+
+variable "public_status_items_table_arn" {
+  description = "DynamoDB public_status_items table ARN writable by the summary cronjob."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:dynamodb:", var.public_status_items_table_arn))
+    error_message = "public_status_items_table_arn must be a valid DynamoDB table ARN."
   }
 }
 

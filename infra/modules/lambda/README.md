@@ -25,9 +25,10 @@ Product_B（公開ポータル）の Portal_API Lambda を定義する。関数�
 - **runtime** は変数（既定 `python3.12`、validation で python3.10〜3.13）。
 - **memory_size** は 256〜512MB を validation で強制（既定 256）。**timeout** 既定 10
   秒（範囲 1〜30、変数）。
-- **package** は `package_filename`（ローカル zip）または `package_s3_bucket`/
-  `package_s3_key`（S3）を変数で受ける。既定はプレースホルダ（空文字）で、実パス/実
-  バケットは埋め込まない。Task 15 が実アーティファクトを供給する。
+- **package** は versioning 有効な artifact bucket の immutable object のみを使用する。
+  `lambda_package_s3_bucket` / `lambda_package_s3_key` /
+  `lambda_package_s3_object_version` / `lambda_source_code_hash` を必須入力とし、ローカル
+  filename 方式は使用しない。key は `lambda/<commit-sha>/portal-api.zip` 形式とする。
 - **IAM 権限は Product_B 内限定**（最小権限、Requirement 17）:
   - DynamoDB **読取**（GetItem/BatchGetItem/Query/Scan）: `public_status_items` /
     `report_metadata` / `maintenance_windows`（各テーブル＋`/index/*`）。ARN は変数で
@@ -50,7 +51,8 @@ Aurora/RDS/ECS/EKS/Product_A SQS/Backend API への参照・書込権限を一�
 
 - `name_prefix`（必須）/ `common_tags`（必須）
 - `runtime`（既定 `python3.12`）/ `handler`（既定 `app.handler.lambda_handler`）
-- `package_filename`（既定 空）/ `package_s3_bucket`（既定 空）/ `package_s3_key`（既定 空）
+- `lambda_package_s3_bucket` / `lambda_package_s3_key` /
+  `lambda_package_s3_object_version` / `lambda_source_code_hash`（すべて必須）
 - `memory_size`（既定 256、範囲 256〜512）/ `timeout`（既定 10、範囲 1〜30）
 - `log_retention_days`（既定 14、14 or 30）
 - `public_status_items_table_arn` / `report_metadata_table_arn` /
@@ -61,12 +63,12 @@ Aurora/RDS/ECS/EKS/Product_A SQS/Backend API への参照・書込権限を一�
 - `lambda_function_name` / `lambda_function_arn` / `lambda_invoke_arn`
 - `lambda_role_arn` / `log_group_name`
 
-## dev root への配線について（後続依存）
+## packageとdev root配線
 
-`infra/environments/dev` への配線は、Portal_API コード（Task 15、実パッケージ）と
-dynamodb モジュール出力（テーブル ARN）、API Gateway（Task 14.2）の配線先確定後に
-行う。既存モジュールと同じ「実装したものだけ配線」方針に従い、Task 14 時点では dev
-ルートへは配線しない。
+`apps/portal-lambda/build.sh` は固定順序・mtime・permission で依存ライブラリと
+`app/` を `dist/portal-api.zip` にまとめる。実 S3 upload はパイプライン側で行う。
+
+dev rootはversioned S3 packageのbucket/key/object version/source hash、DynamoDB table ARN、Portal bucketを配線済みです。Lambda invoke ARN/function名はAPI Gatewayへ渡します。ローカルfilename方式は使用しません。
 
 ## テスト
 

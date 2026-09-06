@@ -9,6 +9,6 @@ python3 -m pip install -r infra/environments/dev/tests/requirements.txt
 python3 -m pytest infra/environments/dev/tests -q
 ```
 
-`test_naming_property.py` contains concrete unit cases, Property 11 with 100 Hypothesis examples, and a Terraform/Python naming consistency check. `test_pipeline_contract.py` verifies the Task 4 ownership boundary: bootstrap owns CodePipeline/CodeBuild/IAM, while the dev root owns the Terraform root, backend contract, and module wiring.
+`test_naming_property.py` contains concrete unit cases, Property 11 with 100 Hypothesis examples, and a Terraform/Python naming consistency check. `test_bucket_naming_property.py` contains Property 4 with 120 examples and checks that Portal and ALB log buckets preserve the complete account/region suffix, remain distinct, and stay within 63 characters. `test_pipeline_contract.py` verifies the Task 4 ownership boundary: bootstrap owns CodePipeline/CodeBuild/IAM, while the dev root owns the Terraform root, backend contract, and module wiring.
 
 The static module snapshots are in `infra/modules/network/tests/` and `infra/modules/ecr/tests/`; they use the same installed pytest dependency and can be run without Terraform or AWS access.

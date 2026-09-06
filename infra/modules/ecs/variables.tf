@@ -50,23 +50,23 @@ variable "target_group_arn" {
   }
 }
 
-variable "task_execution_role_arn" {
+variable "backend_execution_role_arn" {
   description = "ARN of the ECS task execution role (image pull, log write, secret fetch). Owned by the iam module and passed in."
   type        = string
 
   validation {
-    condition     = can(regex("^arn:aws[a-z-]*:iam::", var.task_execution_role_arn))
-    error_message = "task_execution_role_arn must be a valid IAM role ARN."
+    condition     = can(regex("^arn:aws[a-z-]*:iam::", var.backend_execution_role_arn))
+    error_message = "backend_execution_role_arn must be a valid IAM role ARN."
   }
 }
 
-variable "task_role_arn" {
+variable "backend_task_role_arn" {
   description = "ARN of the ECS task role granting the application its runtime AWS permissions. Owned by the iam module and passed in."
   type        = string
 
   validation {
-    condition     = can(regex("^arn:aws[a-z-]*:iam::", var.task_role_arn))
-    error_message = "task_role_arn must be a valid IAM role ARN."
+    condition     = can(regex("^arn:aws[a-z-]*:iam::", var.backend_task_role_arn))
+    error_message = "backend_task_role_arn must be a valid IAM role ARN."
   }
 }
 
@@ -77,6 +77,36 @@ variable "container_image" {
   validation {
     condition     = length(trimspace(var.container_image)) > 0
     error_message = "container_image must be a non-empty ECR image URI."
+  }
+}
+
+variable "migration_container_image" {
+  description = "Full ECR image URI for the dedicated db-migration container."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.migration_container_image)) > 0
+    error_message = "migration_container_image must be a non-empty ECR image URI."
+  }
+}
+
+variable "migration_execution_role_arn" {
+  description = "ARN of the dedicated migration task execution role."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:iam::", var.migration_execution_role_arn))
+    error_message = "migration_execution_role_arn must be a valid IAM role ARN."
+  }
+}
+
+variable "migration_task_role_arn" {
+  description = "ARN of the dedicated migration task role that may read only the DB secret."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:iam::", var.migration_task_role_arn))
+    error_message = "migration_task_role_arn must be a valid IAM role ARN."
   }
 }
 
@@ -91,55 +121,88 @@ variable "app_port" {
   }
 }
 
-# The db_secret_arn is the Secrets Manager ARN (for example the aurora module's
-# app_database_secret_arn). It is an ARN reference only. The secret VALUE, DB
-# password, and full connection URL are never placed in this module.
-variable "db_secret_arn" {
+variable "backend_db_secret_arn" {
   description = "Secrets Manager ARN of the database credential (for example aurora app_database_secret_arn). ARN reference only; the secret value is never stored here."
   type        = string
 
   validation {
-    condition     = can(regex("^arn:aws[a-z-]*:secretsmanager:", var.db_secret_arn))
-    error_message = "db_secret_arn must be a valid Secrets Manager ARN; never a secret value or connection string."
+    condition     = can(regex("^arn:aws[a-z-]*:secretsmanager:", var.backend_db_secret_arn))
+    error_message = "backend_db_secret_arn must be a valid Secrets Manager ARN; never a secret value or connection string."
   }
 }
 
-variable "db_secret_env_name" {
-  description = "Environment variable name the container reads the injected secret into."
+variable "backend_db_name" {
+  description = "Fallback database name used when the RDS-managed secret omits dbname."
   type        = string
-  default     = "DB_SECRET"
-}
-
-variable "desired_count" {
-  description = "Number of running tasks. The MVP runs a single task."
-  type        = number
-  default     = 1
 
   validation {
-    condition     = var.desired_count >= 1
-    error_message = "desired_count must be at least 1."
+    condition     = length(trimspace(var.backend_db_name)) > 0
+    error_message = "backend_db_name must be non-empty."
   }
 }
 
-variable "cpu" {
+variable "backend_bearer_secret_arn" {
+  description = "Secrets Manager ARN whose value ECS injects as BACKEND_INTERNAL_BEARER_TOKEN."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-z-]*:secretsmanager:", var.backend_bearer_secret_arn))
+    error_message = "backend_bearer_secret_arn must be a valid Secrets Manager ARN."
+  }
+}
+
+variable "ecs_desired_count" {
+  description = "Number of running Backend tasks. Use 0 for the initial infrastructure phase and 1 after migration."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.ecs_desired_count >= 0 && floor(var.ecs_desired_count) == var.ecs_desired_count
+    error_message = "ecs_desired_count must be a non-negative integer."
+  }
+}
+
+variable "ecs_task_cpu" {
   description = "Fargate task CPU units. The MVP task definition uses 256."
   type        = number
   default     = 256
 
   validation {
-    condition     = contains([256, 512, 1024], var.cpu)
-    error_message = "cpu must be one of the supported Fargate values 256, 512, or 1024; the MVP uses 256."
+    condition     = contains([256, 512, 1024], var.ecs_task_cpu)
+    error_message = "ecs_task_cpu must be one of the supported Fargate values 256, 512, or 1024; the MVP uses 256."
   }
 }
 
-variable "memory" {
+variable "ecs_task_memory" {
   description = "Fargate task memory (MiB). The MVP task definition uses 512."
   type        = number
   default     = 512
 
   validation {
-    condition     = contains([512, 1024, 2048], var.memory)
-    error_message = "memory must be one of the supported Fargate values 512, 1024, or 2048; the MVP uses 512."
+    condition     = contains([512, 1024, 2048], var.ecs_task_memory)
+    error_message = "ecs_task_memory must be one of the supported Fargate values 512, 1024, or 2048; the MVP uses 512."
+  }
+}
+
+variable "migration_task_cpu" {
+  description = "Fargate CPU units for the one-off migration task."
+  type        = number
+  default     = 256
+
+  validation {
+    condition     = contains([256, 512, 1024], var.migration_task_cpu)
+    error_message = "migration_task_cpu must be 256, 512, or 1024."
+  }
+}
+
+variable "migration_task_memory" {
+  description = "Fargate memory in MiB for the one-off migration task."
+  type        = number
+  default     = 512
+
+  validation {
+    condition     = contains([512, 1024, 2048], var.migration_task_memory)
+    error_message = "migration_task_memory must be 512, 1024, or 2048."
   }
 }
 
@@ -160,15 +223,9 @@ variable "aws_region" {
   default     = null
 }
 
-variable "assign_public_ip" {
-  description = "Whether Fargate tasks receive a public IP. Always false for private-subnet MVP tasks."
-  type        = bool
-  default     = false
-}
-
 # Autoscaling is designed in but disabled for the MVP. When enable_autoscaling
-# is false (default) no scalable target or policy is created and desired_count
-# holds the task count at 1.
+# is false (default) no scalable target or policy is created and
+# ecs_desired_count remains controlled by Terraform.
 variable "enable_autoscaling" {
   description = "Design-only autoscaling switch. Default false (MVP minimal/disabled): no scalable target or policy is created."
   type        = bool

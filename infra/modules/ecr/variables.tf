@@ -21,20 +21,21 @@ variable "common_tags" {
 }
 
 variable "repository_components" {
-  description = "Exactly the four container components owned by the MVP."
+  description = "Exactly the five container components owned by the MVP (Backend_API, three EKS workers, and the DB migration runner)."
   type        = set(string)
   default = [
     "backend-api",
     "alarm-event-processor",
     "security-finding-worker",
     "monthly-summary-cronjob",
+    "db-migration",
   ]
 
   validation {
-    condition = length(var.repository_components) == 4 && alltrue([
-      for component in ["backend-api", "alarm-event-processor", "security-finding-worker", "monthly-summary-cronjob"] : contains(var.repository_components, component)
+    condition = length(var.repository_components) == 5 && alltrue([
+      for component in ["backend-api", "alarm-event-processor", "security-finding-worker", "monthly-summary-cronjob", "db-migration"] : contains(var.repository_components, component)
     ])
-    error_message = "repository_components must contain exactly backend-api, alarm-event-processor, security-finding-worker, and monthly-summary-cronjob."
+    error_message = "repository_components must contain exactly backend-api, alarm-event-processor, security-finding-worker, monthly-summary-cronjob, and db-migration."
   }
 
   validation {

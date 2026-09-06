@@ -10,6 +10,8 @@
 
 対象は **dev 環境の MVP** です。リージョンは `ap-northeast-1`、命名規則は `ops-platform-dev-<resource>`。
 
+実構築時は、先に [AWSリソース・パラメータ値シート](docs/operation/aws-resource-parameter-sheet.xlsx) を完成させ、[詳細AWS構築手順書](docs/operation/aws-build-procedure.md) の手順1〜14を順番どおり実施してください。本READMEは概要であり、実行時の正はこの2成果物です。
+
 ---
 
 ## ポートフォリオ資料
@@ -53,10 +55,8 @@
 ├─ apps/
 │  ├─ backend-api/          # ECS Backend_API (FastAPI, Python) + app/ + Dockerfile
 │  ├─ eks-workers/          # EKS ワーカー3種 + k8s manifest
-│  │  ├─ alarm-event-processor/
-│  │  ├─ security-finding-worker/
-│  │  ├─ monthly-summary-cronjob/
 │  │  └─ k8s/
+│  ├─ db-migration/         # Aurora one-off migration runner
 │  ├─ portal-frontend/      # Product_B 静的フロント (src/, public/)
 │  └─ portal-lambda/        # Product_B Portal_API (Lambda, Python)
 ├─ docs/                    # 設計・運用ドキュメント（architecture/db/api/operation/security/runbook）
@@ -97,7 +97,7 @@ terraform fmt → terraform validate → terraform plan → 手動承認 → ter
 
 ### 3. App_Deploy（インフラ apply と分離）
 
-アプリのデプロイはインフラ apply から分離しています（Req 22.1）。3 スクリプトはいずれも**既定 dry-run（print-only）**で、実コマンド（docker / aws / kubectl）は `--execute` を明示したときのみ実行します。必須値はすべて環境変数で渡し、実 ARN・実アカウント ID・実ドメイン・実 Secret は埋め込みません。App_Deploy は terraform を呼びません。
+アプリのデプロイはインフラ apply から分離しています（Req 22.1）。ECS / EKS / migration / frontend の4スクリプトはいずれも**既定 dry-run（print-only）**で、実コマンド（docker / aws / kubectl）は `--execute` を明示したときのみ実行します。必須値はTerraform output由来の環境変数で渡し、実 ARN・実アカウント ID・実ドメイン・実 Secret は埋め込みません。完全な順序と入力は [詳細AWS構築手順書](docs/operation/aws-build-procedure.md) を参照してください。
 
 ```bash
 # ECS: docker build → ECR push → ECS service update（force new deployment, Req 22.2）
@@ -107,17 +107,17 @@ AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
   ECS_SERVICE=ops-platform-dev-backend-api \
   scripts/deploy-ecs.sh --tag v1            # dry-run（既定）。実行は末尾に --execute
 
-# EKS: docker build → ECR push → kubectl apply（Req 22.3）
-AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
-  ECR_REPO=ops-platform-dev-eks-workers \
-  EKS_CLUSTER=ops-platform-dev-eks \
-  scripts/deploy-eks.sh --tag v1            # dry-run（既定）。実行は末尾に --execute
+# EKS: worker別3 ECR + IRSA/queue/DB/Portal outputを環境変数で供給
+scripts/deploy-eks.sh --help
+scripts/deploy-eks.sh --tag <commit-sha>     # dry-run（既定）。実行は末尾に --execute
+
+# Migration: VPC内 one-off Fargate task
+scripts/deploy-migration.sh --help
+scripts/deploy-migration.sh                  # dry-run（既定）。実行は末尾に --execute
 
 # Frontend: 静的ファイル確認 → S3 sync → CloudFront invalidation（Req 22.4）
-AWS_REGION=ap-northeast-1 \
-  S3_BUCKET=ops-platform-dev-portal-REPLACE_WITH_SUFFIX \
-  CLOUDFRONT_DISTRIBUTION_ID=REPLACE_WITH_DISTRIBUTION_ID \
-  scripts/deploy-frontend.sh                # dry-run（既定）。実行は末尾に --execute
+scripts/deploy-frontend.sh --help
+scripts/deploy-frontend.sh                   # dry-run（既定）。実行は末尾に --execute
 ```
 
 各スクリプトは `--help` / `-h` で使い方と必須環境変数を表示します。必須環境変数が未設定なら明確なエラーで終了します。
@@ -129,10 +129,8 @@ dev/MVP の非機微・ダミーデータを投入します（Task 18.1）。こ
 ```bash
 python3 scripts/seed_alarm_events.py --execute            # アラーム風イベント（EventBridge→SQS）
 python3 scripts/seed_finding_events.py --execute --count 5 # Finding 風イベント
-python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機微レポート/ステータス
-  --report-metadata-table ops-platform-dev-report-metadata \
-  --public-status-table  ops-platform-dev-public-status-items \
-  --reports-bucket       ops-platform-dev-portal-REPLACE_WITH_SUFFIX
+python3 scripts/seed_portal_reports.py                      # dry-runで出力確認
+# Terraform output由来のtable/bucketを指定し、承認後だけ --execute
 ```
 
 投入後は Worker 取込 → Backend_API 確認 → 月次集計 → A→B 連携 → Status Portal 閲覧の順で確認できます（[docs/operation/operation.md](docs/operation/operation.md) のデモシナリオ参照）。
@@ -157,7 +155,7 @@ python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機�
    - CloudFront は無効化 → デプロイ完了後に削除（削除は時間がかかる）。OAC / WAF Web ACL の関連付け解除も確認。
    - Portal_Storage（静的サイト / `reports/*`）の S3 オブジェクトは `terraform destroy` 前に空にする必要があります。
 3. **ECR image の削除**
-   - `ops-platform-dev-backend-api` / `ops-platform-dev-eks-workers` のイメージを削除（リポジトリを空にしてから撤去）。
+   - Backend、worker 3種、db-migration の計5 ECRリポジトリで保持対象tagを確認してから撤去。
 4. **DynamoDB / S3 データの削除**
    - DynamoDB 4 テーブル（public_status_items / report_metadata / page_view_logs / maintenance_windows）のデータ要否を確認。
    - artifact / その他 S3 バケットのオブジェクトを削除。
@@ -190,23 +188,9 @@ python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機�
 
 ---
 
-## dev ルート未配線モジュールと後続配線事項
+## dev ルート完全配線
 
-`infra/environments/dev` ルートは現状 **network / ecr / aurora** のみを配線しています。以下のモジュールは実装済み（`infra/modules/*`）ですが、オリジン間の依存値（ARN / issuer / domain 等）が確定していないため **意図的に dev ルートへ未配線**です。各 module の README に後続配線の依存を明記しています。
-
-| 未配線 module | 後続配線で渡す主な値 |
-| --- | --- |
-| `alb` / `ecs` / `eks` | network（VPC/Subnet/SG）、ecr（image URI）、aurora（Secrets Manager ARN） |
-| `messaging` / `logging` | SQS/DLQ ARN、EventBridge target、Logs group 参照 |
-| `dynamodb` | テーブル ARN → `lambda` の読取/書込ポリシー |
-| `s3-portal` | `cloudfront` の distribution ARN → OAC 許可 bucket policy |
-| `cloudfront` | s3-portal の regional domain（S3 オリジン）、apigateway の domain（API オリジン）、WAF（us-east-1 provider alias） |
-| `cognito` | issuer_url / app_client_id → `apigateway` の JWT Authorizer |
-| `apigateway` | lambda invoke ARN / function name、CloudFront ルーティング |
-| `lambda` | dynamodb テーブル ARN、CloudWatch Logs |
-| `monitoring` | 各リソース（SQS/ECS/ALB/Lambda/Aurora）の識別子 → Alarm dimensions |
-
-後続 Phase で上記の実配線（各 module の出力 → 依存 module の入力）を dev ルートに追加します。本タスクでは Terraform module の新規実装・変更・dev ルート配線は行いません。
+`infra/environments/dev` は network / ecr / aurora / alb / ecs / eks / messaging / logging / dynamodb / s3-portal / cloudfront / cognito / apigateway / lambda / monitoring / iam / waf を配線済みです。S3 OAC bucket policyとmigration-launcher policyは循環を避けるためdev rootが所有します。初回applyはECS desired_count=0、5 imageのpushとmigration成功後に再planして1へ変更します。実AWSでのplan/apply/E2EはCategory Cとして未実施です。
 
 ## ドキュメント
 
@@ -216,6 +200,8 @@ python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機�
 | [docs/db/db-design.md](docs/db/db-design.md) | Aurora 7テーブル / DynamoDB 4テーブル、TTL/GSI 設計理由 |
 | [docs/api/api-design.md](docs/api/api-design.md) | Product_A / Product_B の API 一覧 |
 | [docs/operation/operation.md](docs/operation/operation.md) | 運用手順、デプロイ設計、監視、デモシナリオ |
+| [docs/operation/aws-resource-parameter-sheet.xlsx](docs/operation/aws-resource-parameter-sheet.xlsx) | AWSリソース、入力値、取得値、コスト、Category C、destroy確認 |
+| [docs/operation/aws-build-procedure.md](docs/operation/aws-build-procedure.md) | 空アカウントから構築・検証・撤去までの14手順 |
 | [docs/security/security.md](docs/security/security.md) | OAC/WAF/Cognito JWT/Secrets Manager/最小権限 IAM/ALB 公開範囲 |
 | [docs/runbook/runbook.md](docs/runbook/runbook.md) | 障害時対応、DLQ 運用、撤去手順 |
 
@@ -225,13 +211,14 @@ python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機�
 
 ## CI（GitHub Actions）
 
-`.github/workflows/ci.yml` が `main` への push / pull_request と `workflow_dispatch` で自動テストを実行します。**CI は実 AWS 操作・デプロイを一切行いません**（terraform / AWS CLI / kubectl / docker build・push / s3 sync / CloudFront invalidation を実行しない。deploy スクリプトは `bash -n` の構文チェックのみ）。
+`.github/workflows/ci.yml` が `main` への push / pull_request と `workflow_dispatch` で自動テストを実行します。CIはAWS credentialを持たず、`terraform fmt` と `init -backend=false` / `validate`、各テスト、deploy scriptの`bash -n`だけを実行します。`terraform plan/apply`、AWS CLI、kubectl、Docker build/push、S3 sync、CloudFront invalidationは実行しません。
 
 テストは **suite 別のジョブ**に分けて実行します。リポジトリ全体を単一 `pytest` プロセスで収集すると、複数ディレクトリがそれぞれ `conftest.py` / `pytest.ini` を持ち rootdir 下でモジュール名が衝突するため、Task 20 と同じく suite ごとに実行しています。
 
 | ジョブ | 対象 | 備考 |
 | --- | --- | --- |
-| infra module tests | `bootstrap` / `infra/environments/dev` / `infra/modules/*` の各 tests | Terraform 非実行の静的スナップショット |
+| terraform static | `bootstrap` / `infra/environments/dev` / `infra/modules/*` | pinned/checksum検証済みTerraformでfmt、backend無効init、validate。AWS credentialなし |
+| infra module tests | `bootstrap` / `infra/environments/dev` / `infra/modules/*` の各 tests | pytest静的スナップショット |
 | db migration tests | `db/migrations/tests` | psycopg/testcontainers 未導入のため該当ケースは skip（Docker 不使用） |
 | backend-api tests | `apps/backend-api/tests` | `requirements-test.txt` から依存導入、`compileall` 実行 |
 | eks-workers tests | `apps/eks-workers/tests` | moto 未導入のため moto ケースは skip（fake ベースは実行） |
@@ -243,4 +230,4 @@ python3 scripts/seed_portal_reports.py --execute \        # Product_B へ非機�
 ## 備考
 現在の状態:
 本リポジトリは、AWS Incident & Security Ops Platform の設計、Terraformモジュール、Bootstrap/CI/CD設計、アプリケーション部品を含みます。
-現時点の dev 環境では network/ecr/aurora のみ配線済みで、AWS上への完全な一気通貫構築は次フェーズで対応予定です。
+dev完全構成のIaC・アプリ・deploy手順は実装済みです。完了状態は「静的検証済み」であり、実AWS plan/applyとCategory C E2EはOperator承認後の保留作業です。

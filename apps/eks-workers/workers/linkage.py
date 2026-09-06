@@ -5,7 +5,7 @@ The monthly-summary CronJob is the ONLY execution subject of the A->B linkage
 summary is upserted into Aurora (Product_A), this module derives a NON-SENSITIVE
 report from that summary and reflects it into Product_B:
 
-* a report file placed under Portal_Storage ``reports/<period>/summary.json``,
+* a report file placed under Portal_Storage ``reports/<period>.json``,
 * a ``report_metadata`` entry (report_id / period / title / s3_key ...),
 * a ``public_status_items`` entry (period-based, non-sensitive overview).
 
@@ -121,8 +121,8 @@ def public_status_id(period: str) -> str:
 
 
 def report_s3_key(period: str) -> str:
-    """Deterministic Portal_Storage object key: reports/<period>/summary.json."""
-    return f"{REPORTS_PREFIX}/{validate_period(period)}/summary.json"
+    """Deterministic Portal_Storage object key: reports/<period>.json."""
+    return f"{REPORTS_PREFIX}/{validate_period(period)}.json"
 
 
 def _overview_text(record: MonthlySummaryRecord) -> str:
@@ -173,6 +173,14 @@ class PublicStatusWriterPort(Protocol):
     """Upserts a public_status_items entry keyed on status_id (write-only)."""
 
     def upsert_status(self, item: dict[str, Any]) -> None: ...
+
+
+class PortalLinkageError(RuntimeError):
+    """Safe failure identifying the Product_B target without payload data."""
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        super().__init__(f"portal linkage write failed: {target}")
 
 
 # ---------------------------------------------------------------------------
@@ -244,14 +252,23 @@ def link_summary_to_portal(
     """Reflect a monthly summary into Product_B (one-way A -> B).
 
     Derives the non-sensitive report, places the report file under
-    reports/<period>/summary.json, upserts report_metadata (report_id key) and
+    reports/<period>.json, upserts report_metadata (report_id key) and
     public_status_items (status_id key). All three writes use deterministic keys,
     so re-running the same period overwrites rather than duplicating.
     """
     report = build_linkage_report(record)
     body = json.dumps(report.report_body(), ensure_ascii=False, sort_keys=True).encode("utf-8")
 
-    storage.put_report(report.s3_key, body)
-    report_writer.upsert_report(report.report_metadata_item())
-    status_writer.upsert_status(report.public_status_item())
+    try:
+        storage.put_report(report.s3_key, body)
+    except Exception as exc:
+        raise PortalLinkageError("reports_object") from exc
+    try:
+        report_writer.upsert_report(report.report_metadata_item())
+    except Exception as exc:
+        raise PortalLinkageError("report_metadata") from exc
+    try:
+        status_writer.upsert_status(report.public_status_item())
+    except Exception as exc:
+        raise PortalLinkageError("public_status_items") from exc
     return report

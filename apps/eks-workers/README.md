@@ -1,6 +1,6 @@
 # apps/eks-workers
 
-Product_A の EKS ワーカー群（Python）。namespace=`workers`、EKS Fargate 上で稼働。単一の `workers/` パッケージに共通ロジックと 3 種のエントリポイントをまとめ、1 つのコンテナイメージを `command` で切り替えて起動する。
+Product_A の EKS ワーカー群（Python）。namespace=`workers`、EKS Fargate 上で稼働する。単一の `workers/` パッケージと Docker build から、3つの専用ECRリポジトリへ同一タグを付与し、各workloadは別リポジトリのイメージを参照する。実行処理はmanifestの `command` で切り替える。
 
 ## ワーカー種別（エントリポイント）
 
@@ -8,7 +8,7 @@ Product_A の EKS ワーカー群（Python）。namespace=`workers`、EKS Fargat
 | --- | --- | --- | --- |
 | Worker_Alarm (`alarm-event-processor`) | Deployment | `python -m workers.entrypoints.alarm_event_processor` | SQS からアラーム風イベントを取得→`alarm_events` へ冪等 upsert→メッセージ削除（Req 6.2, 6.5）。 |
 | Worker_Finding (`security-finding-worker`) | Deployment | `python -m workers.entrypoints.security_finding_worker` | 重大度/リソース種別/対応ステータスを判定→`findings`/`finding_triage` へ整合登録・冪等（Req 6.3）。 |
-| Cronjob_Summary (`monthly-summary-cronjob`) | CronJob | `python -m workers.entrypoints.monthly_summary_cronjob` | 対象年月の集計→`monthly_summaries` へ period UNIQUE upsert（Req 7.1, 7.2）。**A→B 連携は Phase 3 のため未実装**。 |
+| Cronjob_Summary (`monthly-summary-cronjob`) | CronJob | `python -m workers.entrypoints.monthly_summary_cronjob` | 対象年月を集計し、Product_Aへperiod UNIQUE upsert後、`reports/<YYYYMM>.json`とPortalの2テーブルへ決定的キーで一方向upsert。 |
 
 ## パッケージ構成
 
@@ -42,32 +42,27 @@ workers/
 
 | ファイル | 内容 |
 | --- | --- |
-| `00-namespace.yaml` | namespace `workers`（eks module の Fargate profile / IRSA sub 条件と一致）。 |
-| `10-serviceaccounts.yaml` | ServiceAccount `eks-worker` / `eks-cronjob`。IRSA ロール ARN を **プレースホルダ** annotation で紐付け。 |
+| `00-namespace.yaml` | namespace `workers` と、組み込みログルーター用 `aws-observability` namespace。 |
+| `10-serviceaccounts.yaml` | ServiceAccount `eks-alarm-worker` / `eks-finding-worker` / `eks-cronjob`。各IRSA role ARNをプレースホルダで紐付け。 |
 | `20-alarm-event-processor.yaml` | Worker_Alarm Deployment。 |
 | `21-security-finding-worker.yaml` | Worker_Finding Deployment。 |
 | `30-monthly-summary-cronjob.yaml` | Cronjob_Summary CronJob（schedule 例）。 |
-| `40-fargate-logging.yaml` | `aws-observability` namespace + `aws-logging` ConfigMap（`output=cloudwatch_logs`）。**Fluent Bit DaemonSet は使わない**。 |
+| `40-fargate-logging.yaml` | `aws-logging` ConfigMap（`output=cloudwatch_logs`）。Fluent Bit DaemonSetは使わない。 |
 
 ### プレースホルダの置換方法
 
-manifest には実 ARN・実イメージ URI を書かない。以下のプレースホルダをデプロイ時に置換する（`envsubst` や kustomize/helm 変数など）:
+manifest には実 ARN・実イメージ URI を書かない。`scripts/deploy-eks.sh` が次の値だけを `envsubst` で一時ディレクトリへ展開し、`${...}` または `REPLACE_WITH_*` が残ればデプロイ前に異常終了する。
 
-- `${EKS_WORKER_ROLE_ARN}` … eks module 出力 `worker_role_arn`
+- `${EKS_ALARM_WORKER_ROLE_ARN}` … eks module 出力 `alarm_worker_role_arn`
+- `${EKS_FINDING_WORKER_ROLE_ARN}` … eks module 出力 `finding_worker_role_arn`
 - `${EKS_CRONJOB_ROLE_ARN}` … eks module 出力 `cronjob_role_arn`
-- `${ECR_WORKERS_IMAGE}` … eks-workers の ECR イメージ URI
+- `${ALARM_WORKER_IMAGE}` / `${FINDING_WORKER_IMAGE}` / `${SUMMARY_CRONJOB_IMAGE}` … workload別ECRイメージURI
 - `${WORKER_DB_SECRET_ARN}` … aurora module 出力（Secrets Manager ARN、値ではない）
-- `${WORKER_SQS_QUEUE_URL}` … messaging module（Task 11）のキュー URL
+- `${ALARM_QUEUE_URL}` / `${FINDING_QUEUE_URL}` … messaging moduleの各queue URL
 - `${AWS_REGION}` / `${WORKER_LOG_GROUP_NAME}` … region と eks module 出力 `worker_log_group_name`
+- `${PORTAL_REPORTS_BUCKET}` / `${PORTAL_REPORT_METADATA_TABLE}` / `${PORTAL_PUBLIC_STATUS_ITEMS_TABLE}` … Cronjob_Summary の3つのProduct_B書込先
 
-例（`envsubst` 使用時、実 apply はデプロイスクリプトで実施）:
-
-```
-export EKS_WORKER_ROLE_ARN=... EKS_CRONJOB_ROLE_ARN=... ECR_WORKERS_IMAGE=... \
-       WORKER_DB_SECRET_ARN=... WORKER_SQS_QUEUE_URL=... \
-       AWS_REGION=ap-northeast-1 WORKER_LOG_GROUP_NAME=/ops-platform-dev/eks/workers
-for f in k8s/*.yaml; do envsubst < "$f" | kubectl apply -f -; done
-```
+`deploy-eks.sh` は `00-namespace.yaml`、`40-fargate-logging.yaml`、ServiceAccount、各workloadの順に適用する。既定はdry-runで、`--execute` がない限りDocker・AWS CLI・kubectlを呼ばない。必須値と実行例は `scripts/deploy-eks.sh --help` を参照する。
 
 > Secret（DB パスワード等）を base64 化して Kubernetes Secret に置くことはしない。DB 認証情報は IRSA 経由で実行時に Secrets Manager から取得する。
 

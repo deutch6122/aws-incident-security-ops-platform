@@ -1,63 +1,55 @@
 # module: eks
 
-Product_A の非同期ワーカー基盤となる EKS クラスタを **Fargate 前提**で定義する（Task 10.1）。
+Product_A の非同期ワーカー基盤となる EKS クラスタを Fargate 前提で定義します。Terraform module は AWS リソースを所有し、Kubernetes manifest は `apps/eks-workers/k8s` で管理します。
 
-- 対応要件: Req 17.1（IRSA 最小権限）, 17.3（Pod 単位権限付与）, 18.1（ログ集約）
-
-## 構成リソース
+## 構成
 
 | リソース | 役割 |
 | --- | --- |
-| `aws_eks_cluster` | 控control plane。`enabled_cluster_log_types` で API/audit 等のログを CloudWatch Logs へ。private/public エンドポイントは変数制御。 |
-| `aws_iam_openid_connect_provider` | クラスタ OIDC issuer から作成。IRSA の信頼基盤。 |
-| `aws_eks_fargate_profile`（workers / kube-system / aws-observability） | Fargate 前提。`workers` にアプリ Pod、`kube-system` にコアアドオン、`aws-observability` に Fargate 組み込みログルーター用 ConfigMap を配置。すべて private subnet。 |
-| Fargate pod execution role | イメージ pull と **Fargate 組み込みログルーター**の CloudWatch Logs 出力権限を持つ。 |
-| IRSA `eks-worker-role` | Worker_Alarm / Worker_Finding 用。 |
-| IRSA `eks-cronjob-role` | Cronjob_Summary 用。 |
-| `aws_cloudwatch_log_group` | ワーカーログ集約先。k8s の `aws-logging` ConfigMap の output と一致させる。 |
+| `aws_eks_cluster` | Control plane。API/audit などのログを CloudWatch Logs へ出力します。 |
+| `aws_iam_openid_connect_provider` | ServiceAccount ごとの IRSA trust の基盤です。 |
+| workers Fargate profile | alarm / finding / summary workload を private subnet で実行します。 |
+| kube-system Fargate profile | CoreDNS などのシステム workload を実行します。 |
+| aws-observability Fargate profile | Fargate 組み込みログルーターを有効にします。 |
+| Fargate pod execution role | イメージ取得と組み込みログルーターの CloudWatch Logs 出力を許可します。 |
+| 3つの IRSA role | alarm worker、finding worker、summary cronjob を個別の ServiceAccount と最小権限に分離します。 |
+| worker log group | Pod の stdout / stderr を集約します。 |
 
-## Fargate ログ収集方式（DaemonSet 不使用）
+Kubernetes version の既定値は `1.36` です。AWS の standard support 対象は変わるため、apply 直前に利用可能かつ standard support 内であることを再確認し、対象外なら plan/apply を停止して `eks_kubernetes_version` を更新してください。extended support を前提にしません。
 
-本モジュールは **Fluent Bit の DaemonSet を作らない**。EKS Fargate の **組み込みログルーター**を用いる。
-
-- ルーターの有効化は Kubernetes 側の `aws-observability` namespace + `aws-logging` ConfigMap（`output=cloudwatch_logs`）で行う（`apps/eks-workers/k8s`）。
-- 本モジュールの責務は「その受け皿となる **`aws-observability` 用 Fargate Profile**」と「**Fargate pod execution role への logging 権限**（`logs:CreateLogGroup` / `CreateLogStream` / `PutLogEvents` / `DescribeLogStreams` 等）」と「**CloudWatch Logs グループ**」の用意まで。ConfigMap 本体は k8s manifest 側で管理する。
-- 将来 EC2 ノード構成へ拡張する場合に限り Fluent Bit DaemonSet を検討する。
-
-## 責務分離（Terraform / Kubernetes）
-
-- **この Terraform モジュール**: AWS リソースのみ（クラスタ、Fargate Profile、OIDC provider、IRSA IAM ロールと trust policy、最小権限ポリシー、pod execution role、ロググループ）。
-- **Kubernetes manifest**（`apps/eks-workers/k8s`）: namespace `workers`、ServiceAccount（IRSA ロール ARN を annotation で紐付け。ARN はプレースホルダ/変数化しコミットに実値を書かない）、Deployment（alarm-event-processor, security-finding-worker）、CronJob（monthly-summary-cronjob）、`aws-observability` の `aws-logging` ConfigMap。
+Public API endpoint を有効にする場合、`eks_public_access_cidrs` は必須です。`0.0.0.0/0` と `::/0` は validation で拒否されます。Operator の実 CIDR だけを Parameter Sheet から渡します。`eks_operator_principal_arn` の EKS access entry は dev root の後続配線で作成します。
 
 ## IRSA 最小権限
 
-trust policy は OIDC provider の `sub = system:serviceaccount:<worker_namespace>:<sa-name>`、`aud = sts.amazonaws.com` に限定する。
+すべての trust policy は OIDC provider、`aud = sts.amazonaws.com`、単一の `system:serviceaccount:<namespace>:<service-account>` に限定します。
 
-- `eks-worker-role`（`worker_service_account_name` に紐付け）
-  - SQS: `ReceiveMessage` / `DeleteMessage` / `GetQueueAttributes` / `GetQueueUrl`（`sqs_queue_arns` 限定）
-  - Secrets Manager: `GetSecretValue`（`db_secret_arn` 限定）
-  - CloudWatch Logs: `CreateLogStream` / `PutLogEvents` / `DescribeLogStreams`（ワーカーログ群限定）
-- `eks-cronjob-role`（`cronjob_service_account_name` に紐付け）
-  - Secrets Manager: `GetSecretValue`（`db_secret_arn` 限定）
-  - CloudWatch Logs 書込
-  - **Portal(S3/DynamoDB) 書込は付与しない**。A→B 連携は Phase 3 のため、その時点で `eks-cronjob-role` に Portal_Storage 書込・Portal_DB 書込を追加する（Feedback 6 に基づき A→B 書込はこのロールに限定）。
+| Role / ServiceAccount | 許可範囲 |
+| --- | --- |
+| `eks-alarm-worker-role` / `eks-alarm-worker` | alarm queue の receive/delete/attributes/url、DB secret 1件の参照、worker log group への書き込み |
+| `eks-finding-worker-role` / `eks-finding-worker` | finding queue の receive/delete/attributes/url、DB secret 1件の参照、worker log group への書き込み |
+| `eks-cronjob-role` / `eks-cronjob` | DB secret 1件の参照、worker log group への書き込み、Portal bucket の `reports/*` への PutObject、`report_metadata` と `public_status_items` への PutItem |
 
-### Resource="*" の根拠
+alarm role は finding queue を参照せず、finding role は alarm queue を参照しません。Cronjob role に SQS 権限、S3 read、DynamoDB UpdateItem、Aurora 以外の secret 権限は付与しません。Secret の値や接続文字列は module、output、manifest に保存せず、ARN 参照のみを渡します。
 
-Fargate pod execution role の logging ステートメントのみ `Resource = "*"`。ログルーターが実行時にログストリームを動的生成するため、作成前にストリーム名を特定できない。範囲はリージョン内 CloudWatch Logs に限定される。
+Fargate pod execution role の logging statement だけは `Resource = "*"` を使用します。ログルーターが stream を実行時生成するため事前に対象 ARN を確定できないことが理由で、許可 action は CloudWatch Logs の生成・列挙・書き込みに限定しています。
 
-## Secrets Manager の扱い
+## Fargate ログ
 
-`db_secret_arn` は **ARN 参照のみ**。DB パスワード・接続 URL・シークレット値は本モジュール・出力・README のいずれにも現れない。IRSA の `GetSecretValue` はこの ARN に限定する。
+Fluent Bit DaemonSet は作成しません。EKS Fargate の組み込みログルーターを使用します。
 
-## dev root への配線について（後続依存）
+1. `apps/eks-workers/k8s/00-namespace.yaml` で `aws-observability` namespace と必須ラベルを作成します。
+2. `apps/eks-workers/k8s/40-fargate-logging.yaml` で `aws-logging` ConfigMap を作成します。
+3. ConfigMap の region と log group placeholder は deployment script が一時ファイルへレンダリングします。
+4. namespace と ConfigMap を worker workload より先に適用します。
 
-`infra/environments/dev` への本モジュール配線は、`sqs_queue_arns`（messaging モジュール = Task 11）と `db_secret_arn`（aurora モジュール = Task 6.1 の出力）が確定してから行う。ecs/alb と同じ「実装したものだけ配線」方針に従い、Task 10.1 時点では配線しない。
+Terraform module は aws-observability Fargate profile、pod execution role の logging 権限、対象 log group を所有します。
 
-## 出力
+## 主な入力と出力
 
-`cluster_name` / `cluster_arn` / `cluster_endpoint` / `cluster_oidc_issuer_url` / `oidc_provider_arn` / `fargate_profile_arn` / `fargate_pod_execution_role_arn` / `worker_role_arn` / `cronjob_role_arn` / `worker_log_group_name`。シークレット値は一切出力しない。
+入力には `private_subnet_ids`、`eks_security_group_id`、`alarm_queue_arn`、`finding_queue_arn`、`db_secret_arn`、`portal_reports_bucket_arn`、2つの DynamoDB table ARN、`eks_public_access_cidrs`、`eks_operator_principal_arn` を使用します。
 
-## テスト
+外部配線用 output は `cluster_name`、`cluster_arn`、`cluster_endpoint`、`cluster_oidc_issuer_url`、`oidc_provider_arn`、`fargate_profile_arn`、`fargate_pod_execution_role_arn`、`alarm_worker_role_arn`、`finding_worker_role_arn`、`cronjob_role_arn`、`worker_log_group_name` です。Secret 値は出力しません。
 
-`tests/test_eks_static.py` は Terraform を実行しない静的検証（ファイル文字列・構成の存在確認）。`terraform init/validate/plan/apply` および AWS API 呼び出しは行わない。
+## 検証範囲
+
+`tests/test_eks_static.py` は IRSA の分離、queue / secret / Portal 書き込み範囲、CIDR validation、Fargate logging manifest を AWS 接続なしで検査します。実クラスタ作成、`kubectl apply`、workload 起動、ログ転送確認は Category C として Operator 承認後に実施します。

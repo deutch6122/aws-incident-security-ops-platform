@@ -8,3 +8,13 @@ metadata:
   labels:
     app.kubernetes.io/part-of: ops-platform
     platform: ops-platform-dev
+---
+# EKS Fargate requires this exact namespace and label for its built-in log
+# router configuration. Apply this file before 40-fargate-logging.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aws-observability
+  labels:
+    aws-observability: enabled
+    platform: ops-platform-dev

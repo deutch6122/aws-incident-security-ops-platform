@@ -54,6 +54,23 @@ def test_lambda_function_exists_with_python_runtime() -> None:
     assert match and 'default     = "python3.12"' in match.group(1)
 
 
+def test_package_uses_only_immutable_versioned_s3_reference() -> None:
+    block = _resource_block("aws_lambda_function", "portal")
+    assert "s3_bucket         = var.lambda_package_s3_bucket" in block
+    assert "s3_key            = var.lambda_package_s3_key" in block
+    assert "s3_object_version = var.lambda_package_s3_object_version" in block
+    assert "source_code_hash  = var.lambda_source_code_hash" in block
+    assert not re.search(r"^\s*filename\s*=", block, re.MULTILINE)
+    assert 'variable "package_filename"' not in VARIABLES
+    for name in (
+        "lambda_package_s3_bucket",
+        "lambda_package_s3_key",
+        "lambda_package_s3_object_version",
+        "lambda_source_code_hash",
+    ):
+        assert f'variable "{name}"' in VARIABLES
+
+
 def test_memory_size_bounded_256_to_512() -> None:
     match = re.search(r'variable "memory_size" \{(.*?)\n\}', VARIABLES, re.DOTALL)
     assert match, "memory_size variable missing"

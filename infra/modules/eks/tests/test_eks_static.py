@@ -76,43 +76,67 @@ def test_fargate_pod_execution_role_has_logging_grant() -> None:
     assert "AmazonEKSFargatePodExecutionRolePolicy" in MAIN
 
 
-def test_worker_irsa_trust_scoped_to_service_account_sub() -> None:
-    role = _resource_block("aws_iam_role", "worker")
-    assert "sts:AssumeRoleWithWebIdentity" in role
-    assert "aws_iam_openid_connect_provider.this.arn" in role
-    assert "local.worker_sa_subject" in role
-    assert '"sts.amazonaws.com"' in role
-    # Subject locals restrict to system:serviceaccount:<ns>:<sa>
-    assert 'worker_sa_subject      = "system:serviceaccount:${var.worker_namespace}:${var.worker_service_account_name}"' in MAIN
-    assert 'cronjob_sa_subject     = "system:serviceaccount:${var.worker_namespace}:${var.cronjob_service_account_name}"' in MAIN
+def test_worker_irsa_trust_is_split_by_service_account() -> None:
+    for role_name, subject in (
+        ("alarm_worker", "local.alarm_worker_sa_subject"),
+        ("finding_worker", "local.finding_worker_sa_subject"),
+    ):
+        role = _resource_block("aws_iam_role", role_name)
+        assert "sts:AssumeRoleWithWebIdentity" in role
+        assert "aws_iam_openid_connect_provider.this.arn" in role
+        assert subject in role
+        assert '"sts.amazonaws.com"' in role
+    assert "alarm_worker_sa_subject" in MAIN
+    assert "finding_worker_sa_subject" in MAIN
+    assert 'cronjob_sa_subject        = "system:serviceaccount:${var.worker_namespace}:${var.cronjob_service_account_name}"' in MAIN
 
 
-def test_worker_role_least_privilege_scoped_to_arns() -> None:
-    policy = _resource_block("aws_iam_role_policy", "worker")
-    assert "sqs:ReceiveMessage" in policy
-    assert "sqs:DeleteMessage" in policy
-    assert "Resource = var.sqs_queue_arns" in policy
-    assert "secretsmanager:GetSecretValue" in policy
-    assert "Resource = [var.db_secret_arn]" in policy
+def test_worker_roles_are_scoped_to_their_own_queue() -> None:
+    alarm = _resource_block("aws_iam_role_policy", "alarm_worker")
+    finding = _resource_block("aws_iam_role_policy", "finding_worker")
+    for policy in (alarm, finding):
+        assert "sqs:ReceiveMessage" in policy
+        assert "sqs:DeleteMessage" in policy
+        assert "secretsmanager:GetSecretValue" in policy
+        assert "Resource = [var.db_secret_arn]" in policy
+    assert "Resource = [var.alarm_queue_arn]" in alarm
+    assert "var.finding_queue_arn" not in alarm
+    assert "Resource = [var.finding_queue_arn]" in finding
+    assert "var.alarm_queue_arn" not in finding
+    assert "sqs_queue_arns" not in MAIN + VARIABLES
 
 
-def test_cronjob_role_has_secret_and_logs_but_no_portal_write() -> None:
+def test_cronjob_role_writes_only_reports_prefix_and_two_tables() -> None:
     role = _resource_block("aws_iam_role", "cronjob")
     assert "local.cronjob_sa_subject" in role
     policy = _resource_block("aws_iam_role_policy", "cronjob")
     assert "secretsmanager:GetSecretValue" in policy
     assert "Resource = [var.db_secret_arn]" in policy
-    # Portal (S3/DynamoDB) write is Phase 3 and must NOT be granted yet.
-    assert "s3:PutObject" not in policy
-    assert "dynamodb:PutItem" not in policy
+    assert "s3:PutObject" in policy
+    assert 'Resource = ["${var.portal_reports_bucket_arn}/reports/*"]' in policy
+    assert "dynamodb:PutItem" in policy
+    assert "var.report_metadata_table_arn" in policy
+    assert "var.public_status_items_table_arn" in policy
     assert "dynamodb:UpdateItem" not in policy
+    assert "s3:GetObject" not in policy
 
 
 def test_arn_reference_variables_validate_arns() -> None:
     secret = re.search(r'variable "db_secret_arn" \{(.*?)\n\}', VARIABLES, re.DOTALL)
     assert secret and "arn:aws" in secret.group(1) and "secretsmanager:" in secret.group(1)
-    sqs = re.search(r'variable "sqs_queue_arns" \{(.*?)\n\}', VARIABLES, re.DOTALL)
-    assert sqs and "arn:aws" in sqs.group(1) and "sqs:" in sqs.group(1)
+    for name in ("alarm_queue_arn", "finding_queue_arn"):
+        sqs = re.search(rf'variable "{name}" \{{(.*?)\n\}}', VARIABLES, re.DOTALL)
+        assert sqs and "arn:aws" in sqs.group(1) and "sqs:" in sqs.group(1)
+
+
+def test_version_and_public_access_inputs_follow_approved_contract() -> None:
+    version = re.search(r'variable "eks_kubernetes_version" \{(.*?)\n\}', VARIABLES, re.DOTALL)
+    assert version and 'default     = "1.36"' in version.group(1)
+    cidrs = re.search(r'variable "eks_public_access_cidrs" \{(.*?)\n\}', VARIABLES, re.DOTALL)
+    assert cidrs and "default" not in cidrs.group(1)
+    assert '"0.0.0.0/0"' in cidrs.group(1)
+    assert '"::/0"' in cidrs.group(1)
+    assert 'variable "eks_operator_principal_arn"' in VARIABLES
 
 
 def test_no_plaintext_secret_material() -> None:
@@ -133,8 +157,36 @@ def test_outputs_expose_expected_ids_without_secret() -> None:
         "cluster_oidc_issuer_url",
         "oidc_provider_arn",
         "fargate_profile_arn",
-        "worker_role_arn",
+        "alarm_worker_role_arn",
+        "finding_worker_role_arn",
         "cronjob_role_arn",
         "fargate_pod_execution_role_arn",
     ):
         assert f'output "{output}"' in OUTPUTS
+
+
+def test_fargate_logging_manifests_use_builtin_router_and_ordered_namespace() -> None:
+    manifests = MODULE_DIR.parents[2] / "apps/eks-workers/k8s"
+    namespaces = (manifests / "00-namespace.yaml").read_text(encoding="utf-8")
+    logging = (manifests / "40-fargate-logging.yaml").read_text(encoding="utf-8")
+    assert "name: aws-observability" in namespaces
+    assert "aws-observability: enabled" in namespaces
+    assert "kind: ConfigMap" in logging
+    assert "name: aws-logging" in logging
+    assert "Name                cloudwatch_logs" in logging
+    assert "kind: DaemonSet" not in logging
+
+
+def test_worker_manifests_bind_three_distinct_service_accounts() -> None:
+    manifests = MODULE_DIR.parents[2] / "apps/eks-workers/k8s"
+    service_accounts = (manifests / "10-serviceaccounts.yaml").read_text(encoding="utf-8")
+    assert service_accounts.count("kind: ServiceAccount") == 3
+    assert "name: eks-alarm-worker" in service_accounts
+    assert "name: eks-finding-worker" in service_accounts
+    assert "name: eks-cronjob" in service_accounts
+    assert "serviceAccountName: eks-alarm-worker" in (
+        manifests / "20-alarm-event-processor.yaml"
+    ).read_text(encoding="utf-8")
+    assert "serviceAccountName: eks-finding-worker" in (
+        manifests / "21-security-finding-worker.yaml"
+    ).read_text(encoding="utf-8")

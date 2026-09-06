@@ -1,9 +1,9 @@
 # GitHub Actions CI for aws-incident-security-ops-platform.
 #
 # Runs the project's test suites automatically. It NEVER performs real AWS
-# operations or deployments: no terraform, no AWS CLI/auth, no kubectl/helm,
-# no docker build/push, no s3 sync / CloudFront invalidation. Deploy scripts
-# are only syntax-checked with `bash -n`.
+# operations or deployments. Terraform is used only for fmt/init with the
+# backend disabled/validate; no AWS credentials, plan, apply, AWS CLI,
+# kubectl/helm, Docker build/push, or deployment command is used.
 #
 # Suites are run in SEPARATE jobs/steps. A single top-level `pytest` process
 # over the whole tree fails to collect because several directories each ship
@@ -28,6 +28,62 @@ env:
   PYTHON_VERSION: "3.11"
 
 jobs:
+  terraform-static:
+    name: terraform fmt + validate (no AWS credentials)
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
+      AWS_EC2_METADATA_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install checksum-verified pinned Terraform
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < .terraform-version)"
+          archive="terraform_${version}_linux_amd64.zip"
+          checksum="$(awk -v archive="$archive" '$2 == archive {print $1}' .terraform-version.checksums)"
+          test -n "$checksum"
+          curl -fsSLo "/tmp/$archive" "https://releases.hashicorp.com/terraform/${version}/$archive"
+          echo "$checksum  /tmp/$archive" | sha256sum -c -
+          unzip -oq "/tmp/$archive" -d /tmp/terraform-bin
+          sudo install /tmp/terraform-bin/terraform /usr/local/bin/terraform
+          test "$(terraform version -json | jq -r .terraform_version)" = "$version"
+          terraform version
+      - name: Prepare provider cache
+        run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+      - name: Restore Terraform provider cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('.terraform-version', 'infra/environments/dev/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-providers-${{ runner.os }}-
+      - name: Assert AWS credentials are absent
+        run: |
+          set -euo pipefail
+          if env | grep -Eq '^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN)='; then
+            echo "AWS credentials must not be available to static Terraform validation." >&2
+            exit 1
+          fi
+      - name: Terraform format check
+        run: terraform fmt -check -recursive bootstrap infra
+      - name: Initialize without backend and validate dev root and modules
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/environments/dev init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=infra/environments/dev validate
+
+          targets=(bootstrap infra/modules/*)
+          for target in "${targets[@]}"; do
+            test -d "$target" || continue
+            echo "::group::terraform validate $target"
+            terraform -chdir="$target" init -backend=false -input=false
+            terraform -chdir="$target" validate
+            echo "::endgroup::"
+          done
+
   # 1. Terraform module snapshot tests (static, no terraform execution).
   infra-tests:
     name: infra module tests
@@ -60,6 +116,8 @@ jobs:
             infra/modules/apigateway/tests
             infra/modules/lambda/tests
             infra/modules/monitoring/tests
+            infra/modules/iam/tests
+            infra/modules/waf/tests
           )
           for s in "${suites[@]}"; do
             echo "::group::pytest $s"
@@ -81,6 +139,8 @@ jobs:
         run: python -m pip install --upgrade pip "pytest==8.3.5"
       - name: Run db migration tests (testcontainers/psycopg cases skip)
         run: python -m pytest db/migrations/tests -q -rs -p no:cacheprovider
+      - name: Run dedicated migration runner tests
+        run: python -m pytest apps/db-migration/tests -q -rs -p no:cacheprovider
 
   # 3. Backend_API (Product_A). Installs from the repo's own requirements files.
   backend-api-tests:
@@ -155,11 +215,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install test deps
         run: python -m pip install --upgrade pip "pytest==8.3.5"
       - name: pytest
         working-directory: apps/portal-frontend
         run: python -m pytest tests -q -p no:cacheprovider
+      - name: Node OAuth unit tests
+        working-directory: apps/portal-frontend
+        run: node --test tests/auth_flow.test.cjs
 
   # 7. Sample-data seed scripts + deploy scripts (static). No AWS, no execution.
   scripts-tests:
@@ -183,6 +249,7 @@ jobs:
           bash -n scripts/deploy-ecs.sh
           bash -n scripts/deploy-eks.sh
           bash -n scripts/deploy-frontend.sh
+          bash -n scripts/deploy-migration.sh
 
   # 8. Static safety scan: no ignored artifacts tracked, no real secrets/ARNs/
   #    account ids/domains committed. AWS doc-placeholder account ids and

@@ -8,9 +8,9 @@ locals {
 }
 
 resource "aws_db_subnet_group" "this" {
-  name       = "${var.name_prefix}-aurora-subnets"
+  name        = "${var.name_prefix}-aurora-subnets"
   description = "Isolated database subnets for the Aurora PostgreSQL cluster."
-  subnet_ids = var.database_subnet_ids
+  subnet_ids  = var.database_subnet_ids
 
   tags = merge(var.common_tags, {
     Name      = "${var.name_prefix}-aurora-subnets"
@@ -35,13 +35,13 @@ resource "aws_rds_cluster" "this" {
   vpc_security_group_ids = [var.db_security_group_id]
   storage_encrypted      = true
 
-  backup_retention_period      = var.backup_retention_period
+  backup_retention_period         = var.backup_retention_period
   enabled_cloudwatch_logs_exports = tolist(var.enabled_cloudwatch_logs_exports)
-  deletion_protection           = var.deletion_protection
-  skip_final_snapshot           = var.skip_final_snapshot
-  final_snapshot_identifier     = var.skip_final_snapshot ? null : local.effective_final_snapshot_identifier
-  copy_tags_to_snapshot         = true
-  apply_immediately             = false
+  deletion_protection             = var.deletion_protection
+  skip_final_snapshot             = var.skip_final_snapshot
+  final_snapshot_identifier       = var.skip_final_snapshot ? null : local.effective_final_snapshot_identifier
+  copy_tags_to_snapshot           = true
+  apply_immediately               = false
 
   serverlessv2_scaling_configuration {
     min_capacity = var.min_capacity

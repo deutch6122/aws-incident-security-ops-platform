@@ -2,6 +2,8 @@
 
 design.md の「デプロイ設計 / 監視設計」を要約する（Req 26.2, 26.3）。詳細は関連ドキュメントを参照。
 
+実AWS構築では [Parameter Sheet](aws-resource-parameter-sheet.xlsx) を完成させ、[詳細AWS構築手順書](aws-build-procedure.md) の手順1〜14を順番どおり実施する。本書のコマンド例だけで構築順を代替しない。
+
 ## デプロイ 3 層分離
 
 ```mermaid
@@ -41,12 +43,12 @@ flowchart LR
    python3 scripts/seed_portal_reports.py --execute \
      --report-metadata-table ops-platform-dev-report-metadata \
      --public-status-table  ops-platform-dev-public-status-items \
-     --reports-bucket       ops-platform-dev-portal-REPLACE_WITH_SUFFIX
+     --reports-bucket       <portal-deployment-s3-bucket-output>
    ```
 6. **Status Portal 閲覧**: Viewer が Cognito ログイン → CloudFront 経由で `GET /api/status(/{id})`・`GET /api/reports(/{id})` を閲覧。閲覧ごとに `page_view_logs` が 1 件増加、`public_status_items` 本体は不変。
 7. **監視アラーム確認**: `infra/modules/monitoring` の Alarm（DLQ>0 / ECS / ALB / Lambda / Aurora）と A/B 分離 2 ダッシュボード、SNS 通知、`audit_logs` の記録を確認。
 
-> App のデプロイ自体を試す場合は `scripts/deploy-ecs.sh` / `deploy-eks.sh` / `deploy-frontend.sh`（既定 dry-run、`--execute` で実行）を使う。App_Deploy はインフラ apply と分離し、terraform は呼ばない。
+> App のデプロイ自体を試す場合は `scripts/deploy-ecs.sh` / `deploy-eks.sh` / `deploy-migration.sh` / `deploy-frontend.sh`（既定 dry-run、`--execute` で実行）を使う。App_Deploy はインフラ apply と分離し、terraform は呼ばない。
 
 ## スケーリング（MVP 非必須）
 

@@ -63,3 +63,55 @@ def test_fmt_buildspec_does_not_assume_role():
     assert "sts assume-role" not in content, (
         "buildspec-fmt.yml は AWS 認証不要のため assume-role すべきでない"
     )
+
+
+def test_all_buildspecs_install_the_pinned_checksum_verified_terraform():
+    for name in ["buildspec.yml", "buildspec-fmt.yml", "buildspec-validate.yml", "buildspec-plan.yml", "buildspec-apply.yml"]:
+        content = _read(name)
+        assert ".terraform-version" in content
+        assert ".terraform-version.checksums" in content
+        assert "linux_amd64" in content
+        assert "sha256sum -c -" in content
+        assert "terraform version -json" in content
+
+
+def test_plan_buildspec_uploads_versioned_lambda_package_and_records_contract():
+    for name in ["buildspec.yml", "buildspec-plan.yml"]:
+        content = _read(name)
+        assert "apps/portal-lambda/build.sh" in content
+        assert "lambda/${COMMIT_SHA}/portal-api.zip" in content
+        assert "s3api put-object" in content
+        assert "--server-side-encryption aws:kms" in content
+        assert "TF_VAR_lambda_package_s3_object_version" in content
+        assert "TF_VAR_lambda_source_code_hash" in content
+        assert "lambda-package-metadata.json" in content
+        assert ".terraform.lock.hcl" in content
+        assert "aws ssm get-parameter" in content
+
+
+def test_plan_buildspec_reads_two_phase_deployment_inputs_from_ssm():
+    """Plan consumes the immutable image tag and the reviewed 0/1 ECS gate."""
+    for name in ["buildspec.yml", "buildspec-plan.yml"]:
+        content = _read(name)
+        assert "SSM_APPLICATION_IMAGE_TAG" in content
+        assert "SSM_ECS_DESIRED_COUNT" in content
+        assert "TF_VAR_application_image_tag" in content
+        assert "TF_VAR_ecs_desired_count" in content
+        assert "TF_VAR_cognito_callback_urls" in content
+        assert "TF_VAR_cognito_logout_urls" in content
+        assert "TF_VAR_cognito_keep_localhost_urls" in content
+        assert "TF_VAR_monitoring_enable_sns_subscription" in content
+        assert "TF_VAR_monitoring_notification_endpoint" in content
+        assert "TF_VAR_monitoring_notification_protocol" in content
+        assert '== "0" || "$TF_VAR_ecs_desired_count" == "1"' in content
+
+
+def test_apply_requires_approved_plan_lock_and_s3_object_identity():
+    for name in ["buildspec.yml", "buildspec-apply.yml"]:
+        content = _read(name)
+        assert "test -n \"$PLAN_SRC_DIR\"" in content
+        assert "cmp -s \"$PLAN_LOCK\"" in content
+        assert "-lockfile=readonly" in content
+        assert "s3api head-object" in content
+        assert "--version-id \"$PACKAGE_VERSION\"" in content
+        assert 'PLAN_FILE="$TF_WORKDIR/tfplan.binary"' not in content

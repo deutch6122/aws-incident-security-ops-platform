@@ -8,6 +8,7 @@ PROJECT = "ops-platform"
 ENVIRONMENT = "dev"
 NAME_PREFIX = f"{PROJECT}-{ENVIRONMENT}"
 MAX_RESOURCE_NAME_LENGTH = 63
+MAX_S3_BUCKET_NAME_LENGTH = 63
 
 _RESOURCE_SUFFIX_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -33,3 +34,23 @@ def resource_name(resource: str) -> str:
         )
 
     return candidate
+
+
+def globally_unique_bucket_name(stem_source: str, account_id: str, region: str) -> str:
+    """Mirror the Terraform bucket-name contract without truncating its suffix."""
+    if re.fullmatch(r"[0-9]{12}", account_id) is None:
+        raise ValueError("account_id must contain exactly 12 digits")
+    if re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z0-9-]+-[0-9]", region) is None:
+        raise ValueError("region must be a valid AWS-style region name")
+    if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", stem_source) is None:
+        raise ValueError("stem_source must be a lowercase hyphenated name")
+
+    suffix = f"{account_id}-{region}"
+    max_stem_length = MAX_S3_BUCKET_NAME_LENGTH - 1 - len(suffix)
+    if max_stem_length < 1:
+        raise ValueError("account and region suffix leaves no room for a bucket stem")
+
+    stem = stem_source[:max_stem_length].rstrip("-")
+    if not stem:
+        raise ValueError("bucket stem cannot be empty after truncation")
+    return f"{stem}-{suffix}"

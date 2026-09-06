@@ -52,11 +52,9 @@ Product_B（公開ポータル）のデータストア Portal_DB を定義する
 - `maintenance_windows_table_name` / `_arn`
 - `streams_enabled`（常に false）/ `ttl_attribute_name`
 
-## dev root への配線について（後続依存）
+## dev root 配線
 
-`infra/environments/dev` への配線は、Portal_API（Task 15）や A→B 連携（Task 16.2）の
-配線先確定後に行う。既存モジュールと同じ「実装したものだけ配線」方針に従い、Task 13
-時点では dev ルートへは配線しない。
+dev rootへ配線済みです。table ARNはLambdaとEKS CronJobの最小権限に、table名はFrontend/sample data/deploy出力に渡します。Product_BからAuroraへの権限は付与しません。
 
 ## テスト
 

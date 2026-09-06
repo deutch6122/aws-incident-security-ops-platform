@@ -33,9 +33,14 @@ output "fargate_pod_execution_role_arn" {
   value       = aws_iam_role.fargate_pod_execution.arn
 }
 
-output "worker_role_arn" {
-  description = "ARN of the eks-worker-role bound to the worker ServiceAccount via IRSA. Annotate the ServiceAccount with this ARN."
-  value       = aws_iam_role.worker.arn
+output "alarm_worker_role_arn" {
+  description = "ARN of the alarm worker IRSA role."
+  value       = aws_iam_role.alarm_worker.arn
+}
+
+output "finding_worker_role_arn" {
+  description = "ARN of the finding worker IRSA role."
+  value       = aws_iam_role.finding_worker.arn
 }
 
 output "cronjob_role_arn" {

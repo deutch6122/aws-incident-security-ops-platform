@@ -16,13 +16,53 @@ phases:
     commands:
       # jq は assume-role の一時クレデンシャル JSON パースに使用する。
       - jq --version || echo "jq が無い場合は導入してください（例: yum install -y jq）"
-      - terraform version
+      - |
+        set -euo pipefail
+        TF_VERSION="$(tr -d '[:space:]' < .terraform-version)"
+        TF_ARCHIVE="terraform_${TF_VERSION}_linux_amd64.zip"
+        TF_CHECKSUM="$(awk -v archive="$TF_ARCHIVE" '$2 == archive {print $1}' .terraform-version.checksums)"
+        test -n "$TF_CHECKSUM"
+        curl -fsSLo "/tmp/$TF_ARCHIVE" "https://releases.hashicorp.com/terraform/${TF_VERSION}/$TF_ARCHIVE"
+        echo "$TF_CHECKSUM  /tmp/$TF_ARCHIVE" | sha256sum -c -
+        unzip -oq "/tmp/$TF_ARCHIVE" -d /tmp/terraform-bin
+        install /tmp/terraform-bin/terraform /usr/local/bin/terraform
+        test "$(terraform version -json | jq -r .terraform_version)" = "$TF_VERSION"
+        terraform version
   build:
     commands:
       # terraform-exec-role を assume して一時クレデンシャルを export（権限分離）。
       - echo "=== assume terraform-exec-role ==="
       - |
         set -euo pipefail
+        COMMIT_SHA="${CODEBUILD_RESOLVED_SOURCE_VERSION:-}"
+        [[ "$COMMIT_SHA" =~ ^[0-9a-f]{7,64}$ ]] || { echo "invalid source commit SHA" >&2; exit 1; }
+        apps/portal-lambda/build.sh
+        PACKAGE_FILE="apps/portal-lambda/dist/portal-api.zip"
+        PACKAGE_KEY="lambda/${COMMIT_SHA}/portal-api.zip"
+        PACKAGE_HASH="$(openssl dgst -sha256 -binary "$PACKAGE_FILE" | openssl base64 -A)"
+        PACKAGE_VERSION="$(aws s3api put-object --bucket "$ARTIFACT_BUCKET" --key "$PACKAGE_KEY" --body "$PACKAGE_FILE" --server-side-encryption aws:kms --ssekms-key-id "$ARTIFACT_KMS_KEY_ARN" --metadata "source-code-hash=$PACKAGE_HASH" --query VersionId --output text)"
+        test -n "$PACKAGE_VERSION" && test "$PACKAGE_VERSION" != "None"
+        export TF_VAR_lambda_package_s3_bucket="$ARTIFACT_BUCKET"
+        export TF_VAR_lambda_package_s3_key="$PACKAGE_KEY"
+        export TF_VAR_lambda_package_s3_object_version="$PACKAGE_VERSION"
+        export TF_VAR_lambda_source_code_hash="$PACKAGE_HASH"
+        export TF_VAR_alb_certificate_arn="$(aws ssm get-parameter --name "$SSM_ALB_CERTIFICATE_ARN" --query Parameter.Value --output text)"
+        export TF_VAR_eks_operator_principal_arn="$(aws ssm get-parameter --name "$SSM_EKS_OPERATOR_PRINCIPAL_ARN" --query Parameter.Value --output text)"
+        export TF_VAR_migration_launcher_trusted_principal_arns="$(aws ssm get-parameter --name "$SSM_MIGRATION_LAUNCHER_PRINCIPALS" --query Parameter.Value --output text)"
+        export TF_VAR_eks_public_access_cidrs="$(aws ssm get-parameter --name "$SSM_EKS_PUBLIC_ACCESS_CIDRS" --query Parameter.Value --output text)"
+        export TF_VAR_application_image_tag="$(aws ssm get-parameter --name "$SSM_APPLICATION_IMAGE_TAG" --query Parameter.Value --output text)"
+        export TF_VAR_ecs_desired_count="$(aws ssm get-parameter --name "$SSM_ECS_DESIRED_COUNT" --query Parameter.Value --output text)"
+        export TF_VAR_cognito_callback_urls="$(aws ssm get-parameter --name "$SSM_COGNITO_CALLBACK_URLS" --query Parameter.Value --output text)"
+        export TF_VAR_cognito_logout_urls="$(aws ssm get-parameter --name "$SSM_COGNITO_LOGOUT_URLS" --query Parameter.Value --output text)"
+        export TF_VAR_cognito_keep_localhost_urls="$(aws ssm get-parameter --name "$SSM_COGNITO_KEEP_LOCALHOST_URLS" --query Parameter.Value --output text)"
+        export TF_VAR_monitoring_enable_sns_subscription="$(aws ssm get-parameter --name "$SSM_MONITORING_ENABLE_SNS_SUBSCRIPTION" --query Parameter.Value --output text)"
+        export TF_VAR_monitoring_notification_endpoint="$(aws ssm get-parameter --name "$SSM_MONITORING_NOTIFICATION_PARAMETER_NAME" --query Parameter.Value --output text)"
+        export TF_VAR_monitoring_notification_protocol="$(aws ssm get-parameter --name "$SSM_MONITORING_NOTIFICATION_PROTOCOL" --query Parameter.Value --output text)"
+        [[ "$TF_VAR_application_image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo "invalid application image tag" >&2; exit 1; }
+        [[ "$TF_VAR_ecs_desired_count" == "0" || "$TF_VAR_ecs_desired_count" == "1" ]] || { echo "ecs desired count must be 0 or 1" >&2; exit 1; }
+        [[ "$TF_VAR_cognito_keep_localhost_urls" == "true" || "$TF_VAR_cognito_keep_localhost_urls" == "false" ]] || { echo "invalid Cognito localhost flag" >&2; exit 1; }
+        [[ "$TF_VAR_monitoring_enable_sns_subscription" == "true" || "$TF_VAR_monitoring_enable_sns_subscription" == "false" ]] || { echo "invalid monitoring subscription flag" >&2; exit 1; }
+        [[ "$TF_VAR_monitoring_notification_protocol" == "email" || "$TF_VAR_monitoring_notification_protocol" == "email-json" || "$TF_VAR_monitoring_notification_protocol" == "https" ]] || { echo "invalid monitoring notification protocol" >&2; exit 1; }
         CREDS=$(aws sts assume-role \
           --role-arn "$TERRAFORM_EXEC_ROLE_ARN" \
           --role-session-name "tf-plan" \
@@ -31,12 +71,14 @@ phases:
         export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r .SecretAccessKey)
         export AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r .SessionToken)
         echo "=== terraform init ==="
-        terraform -chdir="$TF_WORKDIR" init -input=false
+        terraform -chdir="$TF_WORKDIR" init -input=false -lockfile=readonly -backend-config="bucket=$TF_BACKEND_BUCKET"
         echo "=== terraform plan (作成/変更/削除予定リソース一覧) ==="
         # -out でバイナリ plan を保存し、apply 段階で同一 plan を適用する（Req 23.1）。
         terraform -chdir="$TF_WORKDIR" plan -input=false -out=tfplan.binary
         echo "=== plan の人間可読サマリを保存 ==="
         terraform -chdir="$TF_WORKDIR" show -no-color tfplan.binary > "$TF_WORKDIR/plan-summary.txt"
+        LOCK_HASH="$(sha256sum "$TF_WORKDIR/.terraform.lock.hcl" | awk '{print $1}')"
+        jq -n --arg bucket "$ARTIFACT_BUCKET" --arg key "$PACKAGE_KEY" --arg version "$PACKAGE_VERSION" --arg hash "$PACKAGE_HASH" --arg lock_hash "$LOCK_HASH" --arg terraform_version "$(terraform version -json | jq -r .terraform_version)" --arg commit "$COMMIT_SHA" '{bucket:$bucket,key:$key,version:$version,source_code_hash:$hash,lock_sha256:$lock_hash,terraform_version:$terraform_version,commit:$commit}' > "$TF_WORKDIR/lambda-package-metadata.json"
         echo "=== 作成/変更/削除リソースの一覧（抜粋） ==="
         grep -E "will be (created|updated|destroyed|replaced)|# .* will be" "$TF_WORKDIR/plan-summary.txt" || true
         echo "======================================================================"
@@ -54,3 +96,5 @@ artifacts:
   files:
     - "infra/environments/dev/tfplan.binary"
     - "infra/environments/dev/plan-summary.txt"
+    - "infra/environments/dev/.terraform.lock.hcl"
+    - "infra/environments/dev/lambda-package-metadata.json"

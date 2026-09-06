@@ -72,9 +72,3 @@ variable "lambda_function_name" {
     error_message = "lambda_function_name must be set to the Portal_API Lambda function name."
   }
 }
-
-variable "stage_name" {
-  description = "HTTP API stage name."
-  type        = string
-  default     = "api"
-}

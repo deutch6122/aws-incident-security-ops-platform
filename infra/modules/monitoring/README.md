@@ -17,7 +17,8 @@ Requirement 18.1）。監視対象のリソース名/ディメンションは変
 
 | Alarm | Namespace / Metric | 条件 | Product |
 | --- | --- | --- | --- |
-| `*-sqs-dlq-messages-visible` | AWS/SQS `ApproximateNumberOfMessagesVisible` | `> 0` | A |
+| `*-alarm-dlq-messages-visible` | AWS/SQS `ApproximateNumberOfMessagesVisible` | `> 0` | A |
+| `*-finding-dlq-messages-visible` | AWS/SQS `ApproximateNumberOfMessagesVisible` | `> 0` | A |
 | `*-ecs-cpu-high` | AWS/ECS `CPUUtilization` | `> 80%`（既定） | A |
 | `*-ecs-memory-high` | AWS/ECS `MemoryUtilization` | `> 80%`（既定） | A |
 | `*-ecs-running-tasks-low` | ECS/ContainerInsights `RunningTaskCount` | `< 1`（既定） | A |
@@ -34,10 +35,7 @@ Requirement 18.1）。監視対象のリソース名/ディメンションは変
 
 ## SNS 通知構成
 
-`aws_sns_topic.alarms` を 1 つ定義し、各アラームの `alarm_actions` と
-`ok_actions` に当該 SNS トピック ARN を設定する。購読先（Email/Chatbot 等）は
-このモジュールでは定義せず、機微な実エンドポイントを埋め込まない。DLQ>0 の
-発報→SNS 通知は design.md「DLQ 運用方針」に対応する。
+`aws_sns_topic.alarms` を1つ定義し、各アラームの`alarm_actions`と`ok_actions`へ設定する。`monitoring_enable_sns_subscription=true`の場合だけsubscriptionを作成する。`monitoring_notification_endpoint`へ渡すのは実endpointではなく、endpointを保持するSSM Parameter Storeのparameter名である。実メールアドレスやURLはtfvars、README、outputへ記録しない。email confirmationは実行環境でOperatorが行うCategory C手順であり、未確認のpending confirmationはTerraform構成自体の失敗を意味しない。
 
 ## Product_A / Product_B ダッシュボード分離
 
@@ -60,8 +58,9 @@ CloudFront メトリクスは us-east-1 スコープのため、当該ウィジ�
 
 | 変数 | ディメンション |
 | --- | --- |
-| `dlq_queue_name` | SQS `QueueName`（messaging の `dlq_name`） |
+| `alarm_dlq_queue_name` / `finding_dlq_queue_name` | messagingの各DLQ `QueueName` |
 | `ecs_cluster_name` / `ecs_service_name` | ECS `ClusterName` / `ServiceName` |
+| `eks_cluster_name` | EKS Container Insights `ClusterName` |
 | `alb_arn_suffix` | ALB `LoadBalancer`（ARN suffix。フル ARN ではない） |
 | `lambda_function_name` | Lambda `FunctionName` |
 | `aurora_db_cluster_identifier` | RDS `DBClusterIdentifier` |
@@ -83,12 +82,9 @@ CloudFront メトリクスは us-east-1 スコープのため、当該ウィジ�
 これらが Requirement 8.3（状態変更の audit_logs 記録）を担保する。監視構成側は
 本モジュールの静的スナップショットテストで DLQ>0 等のアラーム存在を確認する。
 
-## dev root への配線について（後続依存）
+## dev root 配線
 
-`infra/environments/dev` への本モジュール配線は、messaging/ecs/alb/aurora/lambda
-の各 output（DLQ 名・クラスタ/サービス名・ALB ARN suffix・Aurora 識別子・Lambda
-関数名）が確定してから行う。他モジュールと同じ「実装したものだけ配線」方針に従い、
-Task 18 時点では dev ルートへは配線しない。
+dev rootはmessaging、ECS、EKS、ALB、Aurora、Lambdaの識別子を本moduleへ配線済みです。SNS subscriptionは既定無効で、通知先をSSMに保存して承認付きplanで有効化します。email confirmationはCategory Cであり、PendingConfirmationはTerraform構成失敗を意味しません。
 
 ## テスト
 

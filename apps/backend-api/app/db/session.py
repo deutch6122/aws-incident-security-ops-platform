@@ -34,7 +34,8 @@ class Database:
                 raise DatabaseConfigurationError("database secret ARN is not configured")
             reader = self._secret_reader or Boto3SecretReader(self._settings.aws_region)
             secret = load_database_secret(reader, secret_arn)
-            self._engine = create_engine(build_database_url(secret), pool_pre_ping=True)
+            url = build_database_url(secret, self._settings.db_name)
+            self._engine = create_engine(url, pool_pre_ping=True)
         return self._engine
 
     def get_session_factory(self) -> sessionmaker[Session]:

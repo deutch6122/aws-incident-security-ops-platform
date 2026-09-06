@@ -17,11 +17,17 @@ def test_all_required_component_repositories_are_declared() -> None:
         "alarm-event-processor",
         "security-finding-worker",
         "monthly-summary-cronjob",
+        "db-migration",
     ):
         assert f'"{component}"' in VARIABLES
     assert 'resource "aws_ecr_repository" "this"' in MAIN
     assert 'for_each = var.repository_components' in MAIN
     assert 'name                 = "${var.name_prefix}-${each.value}"' in MAIN
+
+
+def test_repository_components_validation_requires_five_components() -> None:
+    assert "length(var.repository_components) == 5" in VARIABLES
+    assert '"db-migration"' in VARIABLES
 
 
 def test_repositories_scan_on_push_and_are_immutable_by_default() -> None:

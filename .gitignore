@@ -9,20 +9,19 @@
 *.tfstate.*
 .terraform/
 .terraform.tfstate.lock.info
-.terraform.lock.hcl
 crash.log
 crash.*.log
 # ローカル上書き・環境固有の値
 *.tfvars.local
 terraform.tfvars
 *.auto.tfvars
-# backend.tf.example から作るアカウント固有の backend 設定
-/infra/environments/*/backend.tf
+# backend.tf is a committed partial configuration. Account-specific bucket
+# values are supplied at init time with -backend-config and are never committed.
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-# 注: .terraform.lock.hcl はプロバイダ固定のためコミット推奨 → 除外しない
+# .terraform.lock.hcl is committed to pin provider selections.
 
 # ---------- シークレット / 認証情報 ----------
 .env

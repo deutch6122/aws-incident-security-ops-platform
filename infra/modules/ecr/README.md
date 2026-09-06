@@ -1,11 +1,12 @@
 # ecr module
 
-Creates the four MVP container registries:
+Creates the five MVP container registries (Backend_API, the three EKS workers, and the DB migration runner):
 
 - `<name_prefix>-backend-api`
 - `<name_prefix>-alarm-event-processor`
 - `<name_prefix>-security-finding-worker`
 - `<name_prefix>-monthly-summary-cronjob`
+- `<name_prefix>-db-migration`
 
 Each repository has scan-on-push enabled, AES256 at-rest encryption, `common_tags`, and `IMMUTABLE` image tags by default. `image_tag_mutability` may be explicitly changed to `MUTABLE` for a short-lived dev workflow, but immutable versioned tags are recommended for traceability and rollback safety.
 
