@@ -528,6 +528,21 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
     ]
   }
 
+  # Aurora with manage_master_user_password creates an AWS-managed secret
+  # whose generated name starts with rds!cluster-. Permit only the two
+  # creation-time actions required by RDS for that generated namespace.
+  statement {
+    sid    = "SecretsManagerRdsManagedMasterSecret"
+    effect = "Allow"
+    actions = [
+      "secretsmanager:CreateSecret",
+      "secretsmanager:TagResource",
+    ]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${local.account_id}:secret:rds!cluster-*",
+    ]
+  }
+
   # --- CloudWatch Logs ------------------------------------------------------
   statement {
     sid    = "CloudWatchLogs"
@@ -562,12 +577,15 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
     resources = ["*"]
   }
 
-  # CloudWatch Logs の account-level resource policy API は resource ARN
-  # による制限をサポートしないため Action を3つに限定して分離する。
+  # WAF CloudWatch Logs delivery management APIs are account-level and do not
+  # support resource ARN scoping. Keep this wildcard exception to the five
+  # actions required to create/delete log delivery and its resource policy.
   statement {
     sid    = "CloudWatchLogsResourcePolicy"
     effect = "Allow"
     actions = [
+      "logs:CreateLogDelivery",
+      "logs:DeleteLogDelivery",
       "logs:DescribeResourcePolicies",
       "logs:PutResourcePolicy",
       "logs:DeleteResourcePolicy",

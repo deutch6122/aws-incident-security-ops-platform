@@ -331,6 +331,46 @@ def test_cloudwatch_describe_log_groups_wildcard_is_read_only_and_action_specifi
     assert "logs:Put" not in block
 
 
+def test_rds_managed_master_secret_creation_is_name_scoped():
+    code = read_tf("iam.tf")
+    match = re.search(
+        r'sid\s*=\s*"SecretsManagerRdsManagedMasterSecret"(.*?)\n  \}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert match, "RDS-managed master secret statement is missing"
+    block = match.group(1)
+    actions_match = re.search(r"actions\s*=\s*\[(.*?)\]", block, flags=re.DOTALL)
+    assert actions_match
+    assert set(re.findall(r'"([^"]+)"', actions_match.group(1))) == {
+        "secretsmanager:CreateSecret",
+        "secretsmanager:TagResource",
+    }
+    assert "secret:rds!cluster-*" in block
+    assert 'resources = ["*"]' not in block
+
+
+def test_waf_log_delivery_wildcard_is_limited_to_required_actions():
+    code = read_tf("iam.tf")
+    match = re.search(
+        r'sid\s*=\s*"CloudWatchLogsResourcePolicy"(.*?)\n  \}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert match, "WAF CloudWatch Logs delivery statement is missing"
+    block = match.group(1)
+    actions_match = re.search(r"actions\s*=\s*\[(.*?)\]", block, flags=re.DOTALL)
+    assert actions_match
+    assert set(re.findall(r'"([^"]+)"', actions_match.group(1))) == {
+        "logs:CreateLogDelivery",
+        "logs:DeleteLogDelivery",
+        "logs:DescribeResourcePolicies",
+        "logs:PutResourcePolicy",
+        "logs:DeleteResourcePolicy",
+    }
+    assert 'resources = ["*"]' in block
+
+
 def test_eks_service_linked_role_creation_is_condition_scoped():
     code = read_tf("iam.tf")
     expected = {
