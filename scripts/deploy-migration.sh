@@ -142,6 +142,7 @@ if [[ -z "$TASK_ARN" || "$TASK_ARN" == "None" ]]; then
   echo "${SCRIPT_NAME}: ECS did not return a migration task ARN" >&2
   exit 1
 fi
+echo "[info] migration task ARN: $TASK_ARN"
 
 run aws ecs wait tasks-stopped \
   --region "$AWS_REGION" \
@@ -153,7 +154,7 @@ EXIT_CODE="$(
     --region "$AWS_REGION" \
     --cluster "$ECS_CLUSTER" \
     --tasks "$TASK_ARN" \
-    --query 'tasks[0].containers[?essential==`true`].exitCode | [0]' \
+    --query 'tasks[0].containers[0].exitCode' \
     --output text
 )"
 STOPPED_REASON="$(
@@ -164,9 +165,17 @@ STOPPED_REASON="$(
     --query 'tasks[0].stoppedReason' \
     --output text
 )"
+CONTAINER_REASON="$(
+  capture aws ecs describe-tasks \
+    --region "$AWS_REGION" \
+    --cluster "$ECS_CLUSTER" \
+    --tasks "$TASK_ARN" \
+    --query 'tasks[0].containers[0].reason' \
+    --output text
+)"
 
 if [[ "$EXIT_CODE" != "0" ]]; then
-  echo "${SCRIPT_NAME}: migration task failed (exitCode=${EXIT_CODE:-unknown}, stoppedReason=${STOPPED_REASON:-unknown})" >&2
+  echo "${SCRIPT_NAME}: migration task failed (exitCode=${EXIT_CODE:-unknown}, stoppedReason=${STOPPED_REASON:-unknown}, containerReason=${CONTAINER_REASON:-unknown})" >&2
   exit 1
 fi
 

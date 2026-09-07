@@ -117,6 +117,19 @@ data "aws_iam_policy_document" "backend_task" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [var.db_secret_arn]
   }
+
+  statement {
+    sid       = "DbSecretKmsDecrypt"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [var.db_secret_kms_key_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["secretsmanager.${local.region}.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "backend_task" {
@@ -185,6 +198,19 @@ data "aws_iam_policy_document" "migration_task" {
     effect    = "Allow"
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [var.db_secret_arn]
+  }
+
+  statement {
+    sid       = "DbSecretKmsDecrypt"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [var.db_secret_kms_key_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["secretsmanager.${local.region}.amazonaws.com"]
+    }
   }
 }
 

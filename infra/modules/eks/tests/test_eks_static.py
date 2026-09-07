@@ -102,6 +102,9 @@ def test_worker_roles_are_scoped_to_their_own_queue() -> None:
         assert "sqs:DeleteMessage" in policy
         assert "secretsmanager:GetSecretValue" in policy
         assert "Resource = [var.db_secret_arn]" in policy
+        assert "kms:Decrypt" in policy
+        assert "Resource = [var.db_secret_kms_key_arn]" in policy
+        assert '"kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"' in policy
     assert "Resource = [var.alarm_queue_arn]" in alarm
     assert "var.finding_queue_arn" not in alarm
     assert "Resource = [var.finding_queue_arn]" in finding
@@ -115,6 +118,9 @@ def test_cronjob_role_writes_only_reports_prefix_and_two_tables() -> None:
     policy = _resource_block("aws_iam_role_policy", "cronjob")
     assert "secretsmanager:GetSecretValue" in policy
     assert "Resource = [var.db_secret_arn]" in policy
+    assert "kms:Decrypt" in policy
+    assert "Resource = [var.db_secret_kms_key_arn]" in policy
+    assert '"kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"' in policy
     assert "s3:PutObject" in policy
     assert 'Resource = ["${var.portal_reports_bucket_arn}/reports/*"]' in policy
     assert "dynamodb:PutItem" in policy
@@ -127,6 +133,8 @@ def test_cronjob_role_writes_only_reports_prefix_and_two_tables() -> None:
 def test_arn_reference_variables_validate_arns() -> None:
     secret = re.search(r'variable "db_secret_arn" \{(.*?)\n\}', VARIABLES, re.DOTALL)
     assert secret and "arn:aws" in secret.group(1) and "secretsmanager:" in secret.group(1)
+    kms_key = re.search(r'variable "db_secret_kms_key_arn" \{(.*?)\n\}', VARIABLES, re.DOTALL)
+    assert kms_key and "aws-us-gov" in kms_key.group(1) and "kms:" in kms_key.group(1) and ":key/" in kms_key.group(1)
     for name in ("alarm_queue_arn", "finding_queue_arn"):
         sqs = re.search(rf'variable "{name}" \{{(.*?)\n\}}', VARIABLES, re.DOTALL)
         assert sqs and "arn:aws" in sqs.group(1) and "sqs:" in sqs.group(1)

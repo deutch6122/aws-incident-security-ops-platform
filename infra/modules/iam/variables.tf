@@ -71,6 +71,16 @@ variable "db_secret_arn" {
   }
 }
 
+variable "db_secret_kms_key_arn" {
+  description = "ARN of the customer-managed KMS key encrypting the Aurora database secret. DB consumers may decrypt only through Secrets Manager."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:(aws|aws-us-gov|aws-cn):kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$", var.db_secret_kms_key_arn))
+    error_message = "db_secret_kms_key_arn must be a valid customer-managed KMS key ARN."
+  }
+}
+
 variable "migration_launcher_trusted_principal_arns" {
   description = "IAM principal ARNs (Operator principals) permitted to AssumeRole the migration-launcher role. Real ARNs are supplied via the Parameter Sheet; the default is empty so the module validates without committing a real principal."
   type        = list(string)

@@ -153,6 +153,9 @@ def test_migration_script_has_private_fargate_wait_and_exit_checks() -> None:
     assert "assignPublicIp=DISABLED" in text
     assert "aws ecs wait tasks-stopped" in text
     assert "aws ecs describe-tasks" in text
+    assert "tasks[0].containers[0].exitCode" in text
+    assert "containers[?essential" not in text
+    assert "containerReason=" in text
     assert 'if [[ "$EXIT_CODE" != "0" ]]' in text
 
 

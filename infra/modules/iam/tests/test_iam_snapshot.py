@@ -95,6 +95,30 @@ def test_resource_level_actions_use_specific_arns() -> None:
     assert "var.migration_ecr_repository_arn" in MAIN
 
 
+def test_db_consumers_decrypt_only_the_db_secret_kms_key_through_secrets_manager() -> None:
+    assert 'variable "db_secret_kms_key_arn"' in VARIABLES
+    assert "kms:" in VARIABLES and ":key/" in VARIABLES
+    assert MAIN.count('actions   = ["kms:Decrypt"]') == 2
+    assert MAIN.count("resources = [var.db_secret_kms_key_arn]") == 2
+    assert MAIN.count('variable = "kms:ViaService"') == 2
+    assert MAIN.count('values   = ["secretsmanager.${local.region}.amazonaws.com"]') == 2
+
+    backend = _between(
+        MAIN_CODE,
+        'data "aws_iam_policy_document" "backend_task" {',
+        'resource "aws_iam_role_policy" "backend_task" {',
+    )
+    migration = _between(
+        MAIN_CODE,
+        'data "aws_iam_policy_document" "migration_task" {',
+        'resource "aws_iam_role_policy" "migration_task" {',
+    )
+    for policy in (backend, migration):
+        assert 'actions   = ["kms:Decrypt"]' in policy
+        assert "resources = [var.db_secret_kms_key_arn]" in policy
+        assert 'variable = "kms:ViaService"' in policy
+
+
 def test_ecr_pull_is_scoped_to_each_workloads_repository() -> None:
     backend = _between(
         MAIN_CODE,

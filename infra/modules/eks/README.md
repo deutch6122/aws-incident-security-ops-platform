@@ -25,9 +25,9 @@ Public API endpoint を有効にする場合、`eks_public_access_cidrs` は必�
 
 | Role / ServiceAccount | 許可範囲 |
 | --- | --- |
-| `eks-alarm-worker-role` / `eks-alarm-worker` | alarm queue の receive/delete/attributes/url、DB secret 1件の参照、worker log group への書き込み |
-| `eks-finding-worker-role` / `eks-finding-worker` | finding queue の receive/delete/attributes/url、DB secret 1件の参照、worker log group への書き込み |
-| `eks-cronjob-role` / `eks-cronjob` | DB secret 1件の参照、worker log group への書き込み、Portal bucket の `reports/*` への PutObject、`report_metadata` と `public_status_items` への PutItem |
+| `eks-alarm-worker-role` / `eks-alarm-worker` | alarm queue の receive/delete/attributes/url、DB secret 1件の参照、DB secret KMS keyのDecrypt（key ARN限定、Secrets Manager経由のみ）、worker log group への書き込み |
+| `eks-finding-worker-role` / `eks-finding-worker` | finding queue の receive/delete/attributes/url、DB secret 1件の参照、DB secret KMS keyのDecrypt（key ARN限定、Secrets Manager経由のみ）、worker log group への書き込み |
+| `eks-cronjob-role` / `eks-cronjob` | DB secret 1件の参照、DB secret KMS keyのDecrypt（key ARN限定、Secrets Manager経由のみ）、worker log group への書き込み、Portal bucket の `reports/*` への PutObject、`report_metadata` と `public_status_items` への PutItem |
 
 alarm role は finding queue を参照せず、finding role は alarm queue を参照しません。Cronjob role に SQS 権限、S3 read、DynamoDB UpdateItem、Aurora 以外の secret 権限は付与しません。Secret の値や接続文字列は module、output、manifest に保存せず、ARN 参照のみを渡します。
 
@@ -46,7 +46,7 @@ Terraform module は aws-observability Fargate profile、pod execution role の 
 
 ## 主な入力と出力
 
-入力には `private_subnet_ids`、`eks_security_group_id`、`alarm_queue_arn`、`finding_queue_arn`、`db_secret_arn`、`portal_reports_bucket_arn`、2つの DynamoDB table ARN、`eks_public_access_cidrs`、`eks_operator_principal_arn` を使用します。
+入力には `private_subnet_ids`、`eks_security_group_id`、`alarm_queue_arn`、`finding_queue_arn`、`db_secret_arn`、`db_secret_kms_key_arn`、`portal_reports_bucket_arn`、2つの DynamoDB table ARN、`eks_public_access_cidrs`、`eks_operator_principal_arn` を使用します。
 
 外部配線用 output は `cluster_name`、`cluster_arn`、`cluster_endpoint`、`cluster_oidc_issuer_url`、`oidc_provider_arn`、`fargate_profile_arn`、`fargate_pod_execution_role_arn`、`alarm_worker_role_arn`、`finding_worker_role_arn`、`cronjob_role_arn`、`worker_log_group_name` です。Secret 値は出力しません。
 

@@ -9,9 +9,9 @@ Product_A の ECS 系 **5 ロール**を最小権限で所有する（Req 2）�
 | ロール | 決定的名称 | 主要権限（Resource は個別 ARN 限定） |
 | --- | --- | --- |
 | Backend execution | `${name_prefix}-ecs-task-execution-role` | ECR pull（repo ARN 限定）, Backend log group 書込, Bearer secret `GetSecretValue`（Bearer ARN のみ） |
-| Backend task | `${name_prefix}-ecs-task-role` | DB secret `GetSecretValue`（DB secret ARN のみ）。Bearer 取得権限なし |
+| Backend task | `${name_prefix}-ecs-task-role` | DB secret `GetSecretValue`（DB secret ARN のみ）、DB secret KMS key `Decrypt`（key ARN限定、Secrets Manager経由のみ）。Bearer 取得権限なし |
 | migration execution | `${name_prefix}-migration-execution-role` | ECR pull（repo ARN 限定）, migration log group 書込 |
-| migration task | `${name_prefix}-migration-task-role` | DB secret `GetSecretValue`（DB secret ARN のみ）。awslogs 権限なし |
+| migration task | `${name_prefix}-migration-task-role` | DB secret `GetSecretValue`（DB secret ARN のみ）、DB secret KMS key `Decrypt`（key ARN限定、Secrets Manager経由のみ）。awslogs 権限なし |
 | migration launcher | `${name_prefix}-migration-launcher-role` | **role 本体 + trust policy のみ**。`ecs:RunTask`/`iam:PassRole` policy は dev root（Task 27）で attach |
 
 最初の 4 role name は bootstrap の PassRole ARN 組み立てと完全一致させる契約。launcher は
@@ -32,6 +32,7 @@ PassRole 対象ではない。
 - `migration_ecr_repository_arn`（dev root で `module.ecr.repository_arns["db-migration"]` を供給）
 - `backend_bearer_secret_arn`（dev root の Bearer Secret）
 - `db_secret_arn`（aurora の DB secret）
+- `db_secret_kms_key_arn`（DB secretを暗号化するcustomer-managed KMS key ARN）
 - `migration_launcher_trusted_principal_arns`（Operator principal、既定空。実 ARN は Parameter Sheet 供給、repo に記載しない）
 
 ## 出力

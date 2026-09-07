@@ -64,6 +64,16 @@ variable "db_secret_arn" {
   }
 }
 
+variable "db_secret_kms_key_arn" {
+  description = "ARN of the customer-managed KMS key encrypting the database secret. IRSA roles may decrypt only through Secrets Manager."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:(aws|aws-us-gov|aws-cn):kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$", var.db_secret_kms_key_arn))
+    error_message = "db_secret_kms_key_arn must be a valid customer-managed KMS key ARN."
+  }
+}
+
 # Each worker receives one queue ARN. Its IRSA policy is scoped to receive and
 # delete messages from only that workload's queue.
 variable "alarm_queue_arn" {
