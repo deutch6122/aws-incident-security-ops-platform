@@ -25,7 +25,8 @@ phases:
     commands:
       # jq は一時クレデンシャルの JSON パースに使用する（標準イメージには同梱。
       # 無い場合は `yum install -y jq` 等で導入する）。
-      - jq --version || echo "jq が無い場合は install phase で導入してください（例: yum install -y jq）"
+      - |
+        jq --version || echo "jq is not installed. Install it in the install phase if needed."
       - |
         set -euo pipefail
         TF_VERSION="$(tr -d '[:space:]' < .terraform-version)"
