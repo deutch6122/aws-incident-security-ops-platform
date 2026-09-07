@@ -33,7 +33,8 @@ def test_cluster_enables_control_plane_logging_and_uses_private_subnets() -> Non
     cluster = _resource_block("aws_eks_cluster", "this")
     assert "enabled_cluster_log_types = var.enabled_cluster_log_types" in cluster
     assert "access_config" in cluster
-    assert 'authentication_mode = "API_AND_CONFIG_MAP"' in cluster
+    assert 'authentication_mode                         = "API_AND_CONFIG_MAP"' in cluster
+    assert "bootstrap_cluster_creator_admin_permissions = true" in cluster
     assert "subnet_ids              = var.private_subnet_ids" in cluster
     assert "security_group_ids      = [var.eks_security_group_id]" in cluster
     # Fargate pods run in private subnets: variable requires >= 2 distinct.
