@@ -294,6 +294,42 @@ def test_waf_kms_management_is_limited_to_us_east_1_account_resources():
     assert "kms:${var.aws_region}:${local.account_id}:alias/${local.name_prefix}-aurora-master-secret" in code
     assert "terraform_exec_kms.json" in code
 
+    aurora_key_match = re.search(
+        r'sid\s*=\s*"KMSManageAuroraMasterSecretKey"(.*?)\n  \}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert aurora_key_match, "Aurora KMS key management statement is missing"
+    aurora_key_block = aurora_key_match.group(1)
+    for action in (
+        "kms:DescribeKey",
+        "kms:Decrypt",
+        "kms:GenerateDataKey*",
+        "kms:CreateGrant",
+        "kms:CreateAlias",
+        "kms:UpdateAlias",
+        "kms:DeleteAlias",
+    ):
+        assert f'"{action}"' in aurora_key_block
+    assert "aws:ResourceTag/Project" in aurora_key_block
+    assert "aws:ResourceTag/Environment" in aurora_key_block
+
+
+def test_cloudwatch_describe_log_groups_wildcard_is_read_only_and_action_specific():
+    code = read_tf("iam.tf")
+    match = re.search(
+        r'sid\s*=\s*"CloudWatchLogsDescribeGroups"(.*?)\n  \}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert match, "CloudWatch Logs account-level describe statement is missing"
+    block = match.group(1)
+    assert 'actions   = ["logs:DescribeLogGroups"]' in block
+    assert 'resources = ["*"]' in block
+    assert "logs:Create" not in block
+    assert "logs:Delete" not in block
+    assert "logs:Put" not in block
+
 
 def test_eks_service_linked_role_creation_is_condition_scoped():
     code = read_tf("iam.tf")
@@ -305,7 +341,7 @@ def test_eks_service_linked_role_creation_is_condition_scoped():
         ),
         "IAMReadEksFargateServiceLinkedRole": (
             '"iam:GetRole"',
-            "role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate",
+            'resources = ["*"]',
             None,
         ),
         "IAMCreateEksFargateServiceLinkedRole": (
@@ -323,5 +359,9 @@ def test_eks_service_linked_role_creation_is_condition_scoped():
         if service_name is not None:
             assert 'variable = "iam:AWSServiceName"' in block
             assert service_name in block
-        if "EksFargateServiceLinkedRole" in sid:
+        if sid == "IAMCreateEksFargateServiceLinkedRole":
             assert "AWSServiceRoleForAmazonEKSForFargate*" in block
+        if sid == "IAMReadEksFargateServiceLinkedRole":
+            assert re.search(r'actions\s*=\s*\["iam:GetRole"\]', block)
+            assert 'resources = ["*"]' in block
+            assert "iam:Create" not in block

@@ -552,6 +552,16 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
     ]
   }
 
+  # DescribeLogGroups is an account-level list operation. AWS requires
+  # Resource="*" even when the caller only manages the scoped log groups
+  # above. Keep this wildcard exception read-only and action-specific.
+  statement {
+    sid       = "CloudWatchLogsDescribeGroups"
+    effect    = "Allow"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
+  }
+
   # CloudWatch Logs の account-level resource policy API は resource ARN
   # による制限をサポートしないため Action を3つに限定して分離する。
   statement {
@@ -670,7 +680,12 @@ data "aws_iam_policy_document" "terraform_exec_kms" {
       "kms:GetKeyRotationStatus",
       "kms:EnableKeyRotation",
       "kms:DisableKeyRotation",
+      "kms:Decrypt",
+      "kms:GenerateDataKey*",
       "kms:CreateGrant",
+      "kms:CreateAlias",
+      "kms:UpdateAlias",
+      "kms:DeleteAlias",
       "kms:ListResourceTags",
       "kms:TagResource",
       "kms:UntagResource",
@@ -765,10 +780,12 @@ data "aws_iam_policy_document" "terraform_exec_iam" {
   }
 
   statement {
-    sid       = "IAMReadEksFargateServiceLinkedRole"
-    effect    = "Allow"
-    actions   = ["iam:GetRole"]
-    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate*"]
+    sid     = "IAMReadEksFargateServiceLinkedRole"
+    effect  = "Allow"
+    actions = ["iam:GetRole"]
+    # EKS performs an account-level pre-existence check before it creates the
+    # Fargate service-linked role. Limit the required wildcard to GetRole only.
+    resources = ["*"]
   }
 
   statement {
