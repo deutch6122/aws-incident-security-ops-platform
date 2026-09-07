@@ -33,11 +33,12 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host_header" {
 # Aurora/RDS/EKS/ECS origin here; the only origins are the Product_B S3 bucket
 # and the Product_B API Gateway.
 resource "aws_cloudfront_distribution" "this" {
-  enabled         = true
-  is_ipv6_enabled = true
-  comment         = "${var.name_prefix} Portal_CDN"
-  price_class     = var.price_class
-  web_acl_id      = var.web_acl_arn
+  enabled             = true
+  is_ipv6_enabled     = true
+  default_root_object = "index.html"
+  comment             = "${var.name_prefix} Portal_CDN"
+  price_class         = var.price_class
+  web_acl_id          = var.web_acl_arn
 
   # Origin 1: S3 via OAC.
   origin {

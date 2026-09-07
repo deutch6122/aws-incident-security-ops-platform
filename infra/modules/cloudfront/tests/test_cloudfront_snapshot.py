@@ -38,7 +38,12 @@ def test_versions_pin_terraform_and_aws_provider() -> None:
 def test_distribution_uses_price_class_200() -> None:
     assert 'default     = "PriceClass_200"' in VARIABLES
     block = _resource_block("aws_cloudfront_distribution", "this")
-    assert "price_class     = var.price_class" in block
+    assert re.search(r"price_class\s+=\s+var\.price_class", block)
+
+
+def test_distribution_defaults_root_to_index_html() -> None:
+    block = _resource_block("aws_cloudfront_distribution", "this")
+    assert 'default_root_object = "index.html"' in block
 
 
 def test_distribution_has_two_origins() -> None:
@@ -92,7 +97,7 @@ def test_api_behavior_uses_aws_managed_no_cache_and_origin_request_policies() ->
 
 def test_web_acl_associated_with_distribution() -> None:
     dist = _resource_block("aws_cloudfront_distribution", "this")
-    assert "web_acl_id      = var.web_acl_arn" in dist
+    assert re.search(r"web_acl_id\s+=\s+var\.web_acl_arn", dist)
     assert 'variable "web_acl_arn"' in VARIABLES
     assert 'resource "aws_wafv2_web_acl"' not in MAIN
 

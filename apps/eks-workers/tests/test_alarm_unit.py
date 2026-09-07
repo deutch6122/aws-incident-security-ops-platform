@@ -25,6 +25,46 @@ def test_parse_valid_alarm_event() -> None:
     assert record.payload == {"k": 1}
 
 
+def test_parse_eventbridge_alarm_event_from_sqs_body() -> None:
+    body = json.dumps(
+        {
+            "version": "0",
+            "id": "5d6f3a57-b270-6257-8aed-b1fb235f1d38",
+            "detail-type": "AlarmEvent",
+            "source": "ops-platform.sample",
+            "account": "397289505365",
+            "time": "2026-09-07T16:37:14Z",
+            "region": "ap-northeast-1",
+            "resources": [],
+            "detail": {
+                "external_id": "SAMPLE-ALARM-0002",
+                "alarm_name": "ops-platform-dev-sample-alarm-0002",
+                "state": "OK",
+                "namespace": "AWS/ApplicationELB",
+                "metric_name": "HTTPCode_ELB_5XX_Count",
+                "resource_ref": "ops-platform-dev-resource-0002",
+                "reason": "Sample dummy alarm for dev/MVP seeding.",
+                "occurred_at": "2024-01-03T00:00:00Z",
+            },
+        }
+    )
+
+    record = parse_alarm_event(body)
+
+    assert record.external_id == "SAMPLE-ALARM-0002"
+    assert record.source == "ops-platform.sample"
+    assert record.event_type == "AlarmEvent"
+    assert record.payload == {
+        "alarm_name": "ops-platform-dev-sample-alarm-0002",
+        "state": "OK",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "HTTPCode_ELB_5XX_Count",
+        "resource_ref": "ops-platform-dev-resource-0002",
+        "reason": "Sample dummy alarm for dev/MVP seeding.",
+        "occurred_at": "2024-01-03T00:00:00Z",
+    }
+
+
 def test_parse_rejects_missing_fields() -> None:
     with pytest.raises(AlarmEventError):
         parse_alarm_event('{"source": "s", "event_type": "e"}')

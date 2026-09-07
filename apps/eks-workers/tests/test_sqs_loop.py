@@ -6,6 +6,7 @@ handling and that a failing handler leaves the message for redelivery.
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -57,6 +58,27 @@ def test_failing_handler_does_not_delete_message() -> None:
     # m1 failed and is NOT deleted (left for redelivery / DLQ); m2 succeeded.
     assert client.deleted == ["rh2"]
     assert result.failed == 1 and result.processed == 1 and result.deleted == 1
+
+
+def test_failing_handler_logs_message_id(caplog) -> None:
+    client = FakeSqsClient([_msg(1)])
+
+    def handler(message: SqsMessage) -> None:
+        raise RuntimeError("transient failure")
+
+    with caplog.at_level(logging.ERROR):
+        result = process_batch(
+            client,
+            handler,
+            max_messages=10,
+            wait_time_seconds=0,
+            visibility_timeout=30,
+        )
+
+    assert result.failed == 1 and result.processed == 0 and result.deleted == 0
+    assert client.deleted == []
+    assert "failed to process SQS message m1" in caplog.text
+    assert "transient failure" in caplog.text
 
 
 def test_delete_call_order_is_after_handler() -> None:

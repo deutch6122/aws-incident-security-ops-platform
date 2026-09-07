@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -59,6 +60,38 @@ def test_parse_rejects_missing_required() -> None:
         parse_finding_event('{"title": "t", "severity": "low"}')
     with pytest.raises(FindingEventError):
         parse_finding_event('{"external_id": "e", "severity": "low"}')
+
+
+def test_parse_eventbridge_finding_event_from_sqs_body() -> None:
+    body = json.dumps(
+        {
+            "version": "0",
+            "id": "2c76d716-bc24-0a76-4da2-a19987d97c55",
+            "detail-type": "SecurityFinding",
+            "source": "ops-platform.sample",
+            "account": "397289505365",
+            "time": "2026-09-07T16:37:14Z",
+            "region": "ap-northeast-1",
+            "resources": [],
+            "detail": {
+                "external_id": "SAMPLE-FINDING-0004",
+                "title": "Sample finding 0004",
+                "severity": "CRITICAL",
+                "resource_type": "AwsEc2Instance",
+                "workflow_state": "NEW",
+                "description": "Sample dummy security finding for dev/MVP seeding.",
+                "detected_at": "2024-01-05T00:00:00Z",
+            },
+        }
+    )
+
+    event = parse_finding_event(body)
+
+    assert event.external_id == "SAMPLE-FINDING-0004"
+    assert event.title == "Sample finding 0004"
+    assert event.raw_severity == "CRITICAL"
+    assert event.resource_type == "AwsEc2Instance"
+    assert event.raw_status == "NEW"
 
 
 def test_registration_is_consistent_and_idempotent() -> None:

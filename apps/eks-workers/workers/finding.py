@@ -66,6 +66,43 @@ class FindingJudgement:
     triage_status: str
 
 
+def _decode_object(body: str | dict[str, Any]) -> dict[str, Any]:
+    """Decode a JSON body and require an object shape."""
+
+    if isinstance(body, str):
+        try:
+            raw: Any = json.loads(body)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise FindingEventError("finding event body is not valid JSON") from exc
+    else:
+        raw = body
+
+    if not isinstance(raw, dict):
+        raise FindingEventError("finding event must be a JSON object")
+
+    return raw
+
+
+def _unwrap_eventbridge_envelope(raw: dict[str, Any]) -> dict[str, Any]:
+    """Accept direct finding JSON or EventBridge events delivered through SQS."""
+
+    detail = raw.get("detail")
+    if detail is None:
+        return raw
+
+    if isinstance(detail, str):
+        try:
+            decoded_detail: Any = json.loads(detail)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise FindingEventError("finding event detail is not valid JSON") from exc
+        detail = decoded_detail
+
+    if not isinstance(detail, dict):
+        raise FindingEventError("finding event detail must be an object when present")
+
+    return dict(detail)
+
+
 def normalize_severity(raw_severity: str) -> str:
     """Map arbitrary severity text to an allowed severity. Unknown -> medium."""
 
@@ -99,16 +136,7 @@ def judge_finding(event: FindingEvent) -> FindingJudgement:
 def parse_finding_event(body: str | dict[str, Any]) -> FindingEvent:
     """Parse a JSON body (or already-decoded dict) into a FindingEvent."""
 
-    if isinstance(body, str):
-        try:
-            raw: Any = json.loads(body)
-        except (TypeError, json.JSONDecodeError) as exc:
-            raise FindingEventError("finding event body is not valid JSON") from exc
-    else:
-        raw = body
-
-    if not isinstance(raw, dict):
-        raise FindingEventError("finding event must be a JSON object")
+    raw = _unwrap_eventbridge_envelope(_decode_object(body))
 
     external_id = raw.get("external_id")
     if not isinstance(external_id, str) or not external_id.strip():
@@ -126,7 +154,7 @@ def parse_finding_event(body: str | dict[str, Any]) -> FindingEvent:
     if resource_type is not None and not isinstance(resource_type, str):
         raise FindingEventError("finding event resource_type must be text when present")
 
-    raw_status = raw.get("status")
+    raw_status = raw.get("status", raw.get("workflow_state"))
     if raw_status is not None and not isinstance(raw_status, str):
         raise FindingEventError("finding event status must be text when present")
 

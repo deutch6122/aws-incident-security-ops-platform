@@ -9,8 +9,12 @@ repeated failures move it to the DLQ (Requirement 6.4, configured in Task 11).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Callable, Protocol
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +104,7 @@ def process_batch(
         try:
             handler(message)
         except Exception:  # noqa: BLE001 - keep the message for redelivery/DLQ
+            logger.exception("failed to process SQS message %s", message.message_id)
             failed += 1
             continue
         processed += 1

@@ -22,8 +22,8 @@ class AlarmEventError(ValueError):
 _REQUIRED = ("external_id", "source", "event_type")
 
 
-def parse_alarm_event(body: str | dict[str, Any]) -> AlarmEventRecord:
-    """Parse a JSON body (or already-decoded dict) into an AlarmEventRecord."""
+def _decode_object(body: str | dict[str, Any]) -> dict[str, Any]:
+    """Decode a JSON body and require an object shape."""
 
     if isinstance(body, str):
         try:
@@ -36,6 +36,37 @@ def parse_alarm_event(body: str | dict[str, Any]) -> AlarmEventRecord:
     if not isinstance(raw, dict):
         raise AlarmEventError("alarm event must be a JSON object")
 
+    return raw
+
+
+def _unwrap_eventbridge_envelope(raw: dict[str, Any]) -> dict[str, Any]:
+    """Accept direct alarm JSON or EventBridge events delivered through SQS."""
+
+    detail = raw.get("detail")
+    if detail is None:
+        return raw
+
+    if isinstance(detail, str):
+        try:
+            decoded_detail: Any = json.loads(detail)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise AlarmEventError("alarm event detail is not valid JSON") from exc
+        detail = decoded_detail
+
+    if not isinstance(detail, dict):
+        raise AlarmEventError("alarm event detail must be an object when present")
+
+    event = dict(detail)
+    event.setdefault("source", raw.get("source"))
+    event.setdefault("event_type", raw.get("detail-type"))
+    return event
+
+
+def parse_alarm_event(body: str | dict[str, Any]) -> AlarmEventRecord:
+    """Parse a JSON body (or already-decoded dict) into an AlarmEventRecord."""
+
+    raw = _unwrap_eventbridge_envelope(_decode_object(body))
+
     values: dict[str, str] = {}
     for key in _REQUIRED:
         value = raw.get(key)
@@ -46,6 +77,8 @@ def parse_alarm_event(body: str | dict[str, Any]) -> AlarmEventRecord:
     payload = raw.get("payload")
     if payload is not None and not isinstance(payload, dict):
         raise AlarmEventError("alarm event payload must be an object when present")
+    if payload is None:
+        payload = {key: value for key, value in raw.items() if key not in _REQUIRED}
 
     return AlarmEventRecord(
         external_id=values["external_id"],
