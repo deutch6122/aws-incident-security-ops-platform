@@ -630,7 +630,7 @@ data "aws_iam_policy_document" "terraform_exec_kms" {
     sid       = "KMSTagNewAuroraMasterSecretKey"
     effect    = "Allow"
     actions   = ["kms:TagResource"]
-    resources = ["arn:${data.aws_partition.current.partition}:kms:${var.aws_region}:${local.account_id}:key/*"]
+    resources = ["*"]
 
     condition {
       test     = "StringEquals"
@@ -761,6 +761,26 @@ data "aws_iam_policy_document" "terraform_exec_iam" {
       test     = "StringEquals"
       variable = "iam:AWSServiceName"
       values   = ["eks.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "IAMReadEksFargateServiceLinkedRole"
+    effect    = "Allow"
+    actions   = ["iam:GetRole"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate"]
+  }
+
+  statement {
+    sid       = "IAMCreateEksFargateServiceLinkedRole"
+    effect    = "Allow"
+    actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["eks-fargate.amazonaws.com"]
     }
   }
 

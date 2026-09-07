@@ -229,6 +229,7 @@ def test_terraform_exec_has_provider_follow_up_permissions():
         "kms:TagResource",
         "kms:CreateGrant",
         "iam:CreateServiceLinkedRole",
+        "iam:GetRole",
     )
     for action in required_actions:
         assert f'"{action}"' in code, f"required Terraform execution action is missing: {action}"
@@ -276,6 +277,14 @@ def test_waf_kms_management_is_limited_to_us_east_1_account_resources():
     assert "kms:us-east-1:${local.account_id}:alias/${local.name_prefix}-waf-logs" in block
     assert "KMSManageAuroraMasterSecretKey" in code
     assert "KMSTagNewAuroraMasterSecretKey" in code
+    tag_match = re.search(
+        r'sid\s*=\s*"KMSTagNewAuroraMasterSecretKey"(.*?)\n  \}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert tag_match, "Aurora KMS creation-time tag statement is missing"
+    tag_block = tag_match.group(1)
+    assert 'resources = ["*"]' in tag_block
     assert "kms:${var.aws_region}:${local.account_id}:key/*" in code
     assert "aws:RequestTag/Project" in code
     assert "aws:RequestTag/Env" in code
@@ -288,10 +297,29 @@ def test_waf_kms_management_is_limited_to_us_east_1_account_resources():
 
 def test_eks_service_linked_role_creation_is_condition_scoped():
     code = read_tf("iam.tf")
-    match = re.search(r'sid\s*=\s*"IAMCreateEksServiceLinkedRole"(.*?)\n  \}', code, flags=re.DOTALL)
-    assert match, "EKS service-linked role creation statement is missing"
-    block = match.group(1)
-    assert '"iam:CreateServiceLinkedRole"' in block
-    assert "role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS" in block
-    assert 'variable = "iam:AWSServiceName"' in block
-    assert '"eks.amazonaws.com"' in block
+    expected = {
+        "IAMCreateEksServiceLinkedRole": (
+            '"iam:CreateServiceLinkedRole"',
+            "role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS",
+            '"eks.amazonaws.com"',
+        ),
+        "IAMReadEksFargateServiceLinkedRole": (
+            '"iam:GetRole"',
+            "role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate",
+            None,
+        ),
+        "IAMCreateEksFargateServiceLinkedRole": (
+            '"iam:CreateServiceLinkedRole"',
+            "role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate",
+            '"eks-fargate.amazonaws.com"',
+        ),
+    }
+    for sid, (action, resource, service_name) in expected.items():
+        match = re.search(rf'sid\s*=\s*"{sid}"(.*?)\n  \}}', code, flags=re.DOTALL)
+        assert match, f"{sid} statement is missing"
+        block = match.group(1)
+        assert action in block
+        assert resource in block
+        if service_name is not None:
+            assert 'variable = "iam:AWSServiceName"' in block
+            assert service_name in block
