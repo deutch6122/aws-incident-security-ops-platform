@@ -727,6 +727,25 @@ data "aws_iam_policy_document" "terraform_exec_kms" {
     }
   }
 
+  # RDS validates both the customer-managed master-secret key and the regional
+  # AWS managed Secrets Manager key. AWS managed keys cannot carry the
+  # Platform tags used above, so allow only DescribeKey and only when the key
+  # is associated with the fixed AWS managed alias.
+  statement {
+    sid     = "KMSDescribeSecretsManagerDefaultKey"
+    effect  = "Allow"
+    actions = ["kms:DescribeKey"]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:kms:${var.aws_region}:${local.account_id}:key/*",
+    ]
+
+    condition {
+      test     = "ForAnyValue:StringEquals"
+      variable = "kms:ResourceAliases"
+      values   = ["alias/aws/secretsmanager"]
+    }
+  }
+
   statement {
     sid    = "KMSManageAuroraMasterSecretAlias"
     effect = "Allow"

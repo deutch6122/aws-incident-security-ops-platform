@@ -315,6 +315,29 @@ def test_waf_kms_management_is_limited_to_us_east_1_account_resources():
     assert "aws:ResourceTag/Environment" in aurora_key_block
 
 
+def test_secrets_manager_default_kms_key_describe_is_alias_scoped():
+    code = read_tf("iam.tf")
+    match = re.search(
+        r'sid\s*=\s*"KMSDescribeSecretsManagerDefaultKey"(.*?)\n  \}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert match, "Secrets Manager default KMS key statement is missing"
+    block = match.group(1)
+    actions_match = re.search(r"actions\s*=\s*\[(.*?)\]", block, flags=re.DOTALL)
+    assert actions_match
+    assert set(re.findall(r'"([^"]+)"', actions_match.group(1))) == {
+        "kms:DescribeKey"
+    }
+    assert (
+        "kms:${var.aws_region}:${local.account_id}:key/*" in block
+    )
+    assert 'test     = "ForAnyValue:StringEquals"' in block
+    assert 'variable = "kms:ResourceAliases"' in block
+    assert 'values   = ["alias/aws/secretsmanager"]' in block
+    assert 'resources = ["*"]' not in block
+
+
 def test_cloudwatch_describe_log_groups_wildcard_is_read_only_and_action_specific():
     code = read_tf("iam.tf")
     match = re.search(
