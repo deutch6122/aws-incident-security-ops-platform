@@ -835,7 +835,7 @@ export S3_BUCKET=＜portal_deployment.s3_bucket_name＞
 export CLOUDFRONT_DISTRIBUTION_ID=＜portal_deployment.cloudfront_distribution_id＞
 export COGNITO_USER_POOL_ID=＜portal_deployment.cognito_user_pool_id＞
 export COGNITO_APP_CLIENT_ID=＜portal_deployment.cognito_app_client_id＞
-export COGNITO_DOMAIN=＜portal_deployment.cognito_domain＞
+export COGNITO_DOMAIN=＜portal_deployment.cognito_hosted_domain＞
 export COGNITO_REDIRECT_URI="https://$CLOUDFRONT_DOMAIN/callback"
 export COGNITO_LOGOUT_URI="https://$CLOUDFRONT_DOMAIN/"
 
@@ -858,23 +858,112 @@ scripts/deploy-frontend.sh --execute
 | 失敗時停止条件 | 他queue配送、重複、Product_B→Product_Aアクセス、実データ混入 |
 | 確認ログ/出力 | event ID、dummy key、worker/Lambda log、dashboard |
 | rollback方法 | dummy dataだけを識別して削除。rule/permissionを場当たり変更しない |
-| 次へ進める条件 | C-02/C-03/C-06/C-07/C-09/C-14が合格または保留理由を記録 |
+| 次へ進める条件 | main queueが0/0、DLQが投入前から増加しない、DynamoDB/S3にdummy dataが存在し、Portal画面またはAPIで200応答を確認 |
 
 ~~~bash
-python3 scripts/seed_alarm_events.py
-python3 scripts/seed_finding_events.py --count 5
-python3 scripts/seed_portal_reports.py --count 6 \
-  --report-metadata-table ＜report-metadata-table＞ \
-  --public-status-table ＜public-status-items-table＞ \
-  --reports-bucket ＜portal-bucket＞
+export AWS_REGION=ap-northeast-1
 
-# payload承認後のみ
-python3 scripts/seed_alarm_events.py --execute
-python3 scripts/seed_finding_events.py --execute --count 5
-python3 scripts/seed_portal_reports.py --execute --count 6 \
-  --report-metadata-table ＜report-metadata-table＞ \
-  --public-status-table ＜public-status-items-table＞ \
-  --reports-bucket ＜portal-bucket＞
+# Terraform outputから投入先を取得する。手入力でテーブル名・bucket名を写さない。
+export PORTAL_REPORT_METADATA_TABLE="$(terraform -chdir=infra/environments/dev output -json portal_deployment | jq -r '.report_metadata_table_name')"
+export PORTAL_PUBLIC_STATUS_ITEMS_TABLE="$(terraform -chdir=infra/environments/dev output -json portal_deployment | jq -r '.public_status_table_name')"
+export PORTAL_REPORTS_BUCKET="$(terraform -chdir=infra/environments/dev output -json portal_deployment | jq -r '.s3_bucket_name')"
+export ALARM_QUEUE_URL="$(terraform -chdir=infra/environments/dev output -json messaging | jq -r '.alarm_queue_url')"
+export FINDING_QUEUE_URL="$(terraform -chdir=infra/environments/dev output -json messaging | jq -r '.finding_queue_url')"
+export ALARM_DLQ_URL="$(terraform -chdir=infra/environments/dev output -json messaging | jq -r '.alarm_dlq_url')"
+export FINDING_DLQ_URL="$(terraform -chdir=infra/environments/dev output -json messaging | jq -r '.finding_dlq_url')"
+
+printf 'REPORT_METADATA_TABLE=%s\nPUBLIC_STATUS_TABLE=%s\nREPORTS_BUCKET=%s\n' \
+  "$PORTAL_REPORT_METADATA_TABLE" "$PORTAL_PUBLIC_STATUS_ITEMS_TABLE" "$PORTAL_REPORTS_BUCKET"
+
+# workerが起動済みであることを確認する。
+kubectl rollout status deployment/alarm-event-processor -n workers --timeout=300s
+kubectl rollout status deployment/security-finding-worker -n workers --timeout=300s
+kubectl get pods -n workers
+
+# DLQは過去失敗分が残っていてもよい。投入前後で増えないことを確認する。
+export ALARM_DLQ_BEFORE="$(aws sqs get-queue-attributes \
+  --region "$AWS_REGION" \
+  --queue-url "$ALARM_DLQ_URL" \
+  --attribute-names ApproximateNumberOfMessages \
+  --query 'Attributes.ApproximateNumberOfMessages' \
+  --output text)"
+export FINDING_DLQ_BEFORE="$(aws sqs get-queue-attributes \
+  --region "$AWS_REGION" \
+  --queue-url "$FINDING_DLQ_URL" \
+  --attribute-names ApproximateNumberOfMessages \
+  --query 'Attributes.ApproximateNumberOfMessages' \
+  --output text)"
+printf 'ALARM_DLQ_BEFORE=%s\nFINDING_DLQ_BEFORE=%s\n' "$ALARM_DLQ_BEFORE" "$FINDING_DLQ_BEFORE"
+
+# まずdry-runでpayloadがdummyであることを確認する。
+python3 scripts/seed_alarm_events.py --region "$AWS_REGION"
+python3 scripts/seed_finding_events.py --region "$AWS_REGION" --count 5
+python3 scripts/seed_portal_reports.py --region "$AWS_REGION" --count 6 \
+  --report-metadata-table "$PORTAL_REPORT_METADATA_TABLE" \
+  --public-status-table "$PORTAL_PUBLIC_STATUS_ITEMS_TABLE" \
+  --reports-bucket "$PORTAL_REPORTS_BUCKET"
+
+# payload承認後のみ実投入する。
+python3 scripts/seed_alarm_events.py --execute --region "$AWS_REGION"
+python3 scripts/seed_finding_events.py --execute --region "$AWS_REGION" --count 5
+python3 scripts/seed_portal_reports.py --execute --region "$AWS_REGION" --count 6 \
+  --report-metadata-table "$PORTAL_REPORT_METADATA_TABLE" \
+  --public-status-table "$PORTAL_PUBLIC_STATUS_ITEMS_TABLE" \
+  --reports-bucket "$PORTAL_REPORTS_BUCKET"
+
+# Product_B側に検証用データが入ったことを確認する。
+aws dynamodb scan \
+  --region "$AWS_REGION" \
+  --table-name "$PORTAL_REPORT_METADATA_TABLE" \
+  --select COUNT
+aws dynamodb scan \
+  --region "$AWS_REGION" \
+  --table-name "$PORTAL_PUBLIC_STATUS_ITEMS_TABLE" \
+  --select COUNT
+aws s3 ls "s3://$PORTAL_REPORTS_BUCKET/reports/" \
+  --region "$AWS_REGION" \
+  --recursive
+
+# EventBridge→SQS→worker処理が詰まっていないことを確認する。
+aws sqs get-queue-attributes \
+  --region "$AWS_REGION" \
+  --queue-url "$ALARM_QUEUE_URL" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible
+aws sqs get-queue-attributes \
+  --region "$AWS_REGION" \
+  --queue-url "$FINDING_QUEUE_URL" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible
+
+export ALARM_DLQ_AFTER="$(aws sqs get-queue-attributes \
+  --region "$AWS_REGION" \
+  --queue-url "$ALARM_DLQ_URL" \
+  --attribute-names ApproximateNumberOfMessages \
+  --query 'Attributes.ApproximateNumberOfMessages' \
+  --output text)"
+export FINDING_DLQ_AFTER="$(aws sqs get-queue-attributes \
+  --region "$AWS_REGION" \
+  --queue-url "$FINDING_DLQ_URL" \
+  --attribute-names ApproximateNumberOfMessages \
+  --query 'Attributes.ApproximateNumberOfMessages' \
+  --output text)"
+printf 'ALARM_DLQ_BEFORE=%s ALARM_DLQ_AFTER=%s\n' "$ALARM_DLQ_BEFORE" "$ALARM_DLQ_AFTER"
+printf 'FINDING_DLQ_BEFORE=%s FINDING_DLQ_AFTER=%s\n' "$FINDING_DLQ_BEFORE" "$FINDING_DLQ_AFTER"
+test "$ALARM_DLQ_BEFORE" = "$ALARM_DLQ_AFTER"
+test "$FINDING_DLQ_BEFORE" = "$FINDING_DLQ_AFTER"
+~~~
+
+Frontendから確認する場合は、CloudFront URLでログイン後に`/status.html`と`/reports.html`を開き、一覧が表示されることを確認する。CLIでAPIを直接確認する場合は、ブラウザ開発者ツール等で取得した有効なCognito tokenを一時変数に入れ、Secretやtokenを作業記録へ残さない。
+
+~~~bash
+export CLOUDFRONT_DOMAIN=＜portal_deployment.cloudfront_distribution_domain＞
+export PORTAL_TOKEN='＜browser-session-token-not-recorded＞'
+
+curl -fsS "https://$CLOUDFRONT_DOMAIN/api/status" \
+  -H "Authorization: Bearer $PORTAL_TOKEN" | jq .
+curl -fsS "https://$CLOUDFRONT_DOMAIN/api/reports" \
+  -H "Authorization: Bearer $PORTAL_TOKEN" | jq .
+
+unset PORTAL_TOKEN
 ~~~
 
 ### コマンド操作 BP-13-C03

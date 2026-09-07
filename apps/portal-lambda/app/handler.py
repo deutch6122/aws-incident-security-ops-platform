@@ -34,10 +34,21 @@ _STATUS_DETAIL_RE = re.compile(r"^/api/status/(?P<id>[^/]+)$")
 _REPORT_DETAIL_RE = re.compile(r"^/api/reports/(?P<id>[^/]+)$")
 
 
+def _is_concrete_route_key(route_key: str) -> bool:
+    """Return True when routeKey contains the actual request path.
+
+    HTTP API proxy routes such as ``ANY /api/{proxy+}`` describe the matched
+    route pattern, not the concrete viewer path. For those, use rawPath instead
+    so ``/api/status`` and ``/api/reports`` route correctly behind CloudFront.
+    """
+
+    return route_key not in ("", "$default") and "{" not in route_key and "}" not in route_key
+
+
 def _method_and_path(event: dict[str, Any]) -> tuple[str, str]:
-    """Resolve (method, path) from routeKey, else rawPath + http.method."""
+    """Resolve (method, path) from concrete routeKey, else rawPath + http.method."""
     route_key = event.get("routeKey")
-    if isinstance(route_key, str) and route_key not in ("", "$default"):
+    if isinstance(route_key, str) and _is_concrete_route_key(route_key):
         parts = route_key.split(" ", 1)
         if len(parts) == 2:
             return parts[0].upper(), parts[1]

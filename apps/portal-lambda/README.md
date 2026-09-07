@@ -30,7 +30,7 @@ tests/              単体テスト・Property 10（Hypothesis, fake ベース�
 
 ## ルーティング
 
-`app.handler._method_and_path` は API Gateway HTTP API v2 event の `routeKey`（例 `GET /api/status`）を第一に使い、`$default` や欠落時は `rawPath` + `requestContext.http.method` にフォールバックする。GET 以外は 404。
+`app.handler._method_and_path` は API Gateway HTTP API v2 event の concrete な `routeKey`（例 `GET /api/status`）を使う。`$default`、欠落、`ANY /api/{proxy+}` のようなproxy route patternの場合は、実際のリクエストパスである `rawPath` + `requestContext.http.method` にフォールバックする。GET 以外は 404。
 
 ## 認証 / JWT claims 確認方針
 

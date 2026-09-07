@@ -132,3 +132,14 @@ def test_routing_falls_back_to_raw_path_and_method() -> None:
     api, _status, _views = _api()
     resp = api.handle(event("GET", "/api/status/s-1", claims=VALID_CLAIMS, use_route_key=False))
     assert resp["statusCode"] == 200
+
+
+def test_proxy_route_key_uses_raw_path_for_actual_request_path() -> None:
+    api, _status, _views = _api()
+    evt = event("GET", "/api/reports", claims=VALID_CLAIMS)
+    evt["routeKey"] = "ANY /api/{proxy+}"
+
+    resp = api.handle(evt)
+
+    assert resp["statusCode"] == 200
+    assert '"r-202401"' in resp["body"]
