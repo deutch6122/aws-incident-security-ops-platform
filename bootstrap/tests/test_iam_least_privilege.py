@@ -209,6 +209,8 @@ def test_terraform_exec_can_confirm_platform_s3_bucket_creation():
     assert '"s3:GetBucketAcl"' in block
     assert '"s3:GetBucketOwnershipControls"' in block
     assert '"s3:GetLifecycleConfiguration"' in block
+    assert '"s3:GetBucketObjectLockConfiguration"' in block
+    assert '"s3:GetObjectLockConfiguration"' not in block
     assert '"arn:aws:s3:::${local.name_prefix}-*"' in block
 
 

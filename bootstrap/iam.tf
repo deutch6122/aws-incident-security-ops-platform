@@ -391,7 +391,7 @@ data "aws_iam_policy_document" "terraform_exec_compute_data" {
       "s3:GetAccelerateConfiguration",
       "s3:GetReplicationConfiguration",
       "s3:GetBucketRequestPayment",
-      "s3:GetObjectLockConfiguration",
+      "s3:GetBucketObjectLockConfiguration",
     ]
     resources = [
       "arn:aws:s3:::${local.name_prefix}-*",
