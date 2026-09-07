@@ -263,6 +263,9 @@ def test_eks_manifests_reference_distinct_workload_images_and_queues() -> None:
         assert placeholder in alarm
         assert placeholder in finding
         assert placeholder in summary
+    assert 'value: "${WORKER_DB_PORT}"' in alarm
+    assert 'value: "${WORKER_DB_PORT}"' in finding
+    assert 'value: "${WORKER_DB_PORT}"' in summary
 
 
 def test_eks_default_dry_run_renders_but_executes_no_external_tool(tmp_path: Path) -> None:

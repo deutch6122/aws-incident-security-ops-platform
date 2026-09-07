@@ -44,7 +44,7 @@ spec:
             - name: WORKER_DB_HOST
               value: ${WORKER_DB_HOST}
             - name: WORKER_DB_PORT
-              value: ${WORKER_DB_PORT}
+              value: "${WORKER_DB_PORT}"
             - name: WORKER_DB_NAME
               value: ${WORKER_DB_NAME}
             - name: WORKER_SQS_QUEUE_URL
