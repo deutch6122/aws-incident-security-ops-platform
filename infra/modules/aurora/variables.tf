@@ -52,13 +52,13 @@ variable "database_name" {
 }
 
 variable "engine_version" {
-  description = "Aurora PostgreSQL engine version. The dev default is a PostgreSQL 16 minor version; select a supported Aurora PostgreSQL Serverless v2 version in the target Region before apply. This module accepts Aurora PostgreSQL major versions 14 through 16."
+  description = "Optional Aurora PostgreSQL engine version. null delegates selection to the RDS regional default; pin only after checking Serverless v2 support in the target Region."
   type        = string
-  default     = "16.6"
+  default     = null
 
   validation {
-    condition     = can(regex("^1[4-6]\\.[0-9]+(\\.[0-9]+)?$", var.engine_version))
-    error_message = "engine_version must be an Aurora PostgreSQL 14.x, 15.x, or 16.x version supported for Serverless v2 in the deployment Region."
+    condition     = var.engine_version == null || can(regex("^1[4-6]\\.[0-9]+(\\.[0-9]+)?$", var.engine_version))
+    error_message = "engine_version must be null or an Aurora PostgreSQL 14.x, 15.x, or 16.x version supported for Serverless v2 in the deployment Region."
   }
 }
 

@@ -163,6 +163,8 @@ data "aws_iam_policy_document" "terraform_exec_state_network" {
       "ec2:CreateVpcEndpoint",
       "ec2:DeleteVpcEndpoints",
       "ec2:ModifyVpcEndpoint",
+      "ec2:CreateFlowLogs",
+      "ec2:DeleteFlowLogs",
       "ec2:CreateTags",
       "ec2:DeleteTags",
     ]
@@ -203,6 +205,7 @@ data "aws_iam_policy_document" "terraform_exec_compute_data" {
       "ecs:CreateService",
       "ecs:UpdateService",
       "ecs:DeleteService",
+      "ecs:PutClusterCapacityProviders",
       "ecs:RegisterTaskDefinition",
       "ecs:DeregisterTaskDefinition",
       "ecs:TagResource",
@@ -231,6 +234,11 @@ data "aws_iam_policy_document" "terraform_exec_compute_data" {
       "eks:CreateAddon",
       "eks:DeleteAddon",
       "eks:AssociatePodIdentity",
+      "eks:CreateAccessEntry",
+      "eks:UpdateAccessEntry",
+      "eks:DeleteAccessEntry",
+      "eks:AssociateAccessPolicy",
+      "eks:DisassociateAccessPolicy",
     ]
     resources = ["*"]
   }
@@ -243,10 +251,12 @@ data "aws_iam_policy_document" "terraform_exec_compute_data" {
       "ecr:Describe*",
       "ecr:List*",
       "ecr:GetRepositoryPolicy",
+      "ecr:GetLifecyclePolicy",
       "ecr:CreateRepository",
       "ecr:DeleteRepository",
       "ecr:SetRepositoryPolicy",
       "ecr:PutLifecyclePolicy",
+      "ecr:DeleteLifecyclePolicy",
       "ecr:PutImageScanningConfiguration",
       "ecr:TagResource",
       "ecr:UntagResource",
@@ -357,6 +367,9 @@ data "aws_iam_policy_document" "terraform_exec_compute_data" {
     actions = [
       "s3:CreateBucket",
       "s3:DeleteBucket",
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+      "s3:GetBucketAcl",
       "s3:PutBucketPolicy",
       "s3:GetBucketPolicy",
       "s3:PutBucketPublicAccessBlock",
@@ -368,6 +381,17 @@ data "aws_iam_policy_document" "terraform_exec_compute_data" {
       "s3:PutBucketTagging",
       "s3:GetBucketTagging",
       "s3:PutBucketAcl",
+      "s3:PutBucketOwnershipControls",
+      "s3:GetBucketOwnershipControls",
+      "s3:PutLifecycleConfiguration",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetBucketCORS",
+      "s3:GetBucketWebsite",
+      "s3:GetBucketLogging",
+      "s3:GetAccelerateConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:GetBucketRequestPayment",
+      "s3:GetObjectLockConfiguration",
     ]
     resources = [
       "arn:aws:s3:::${local.name_prefix}-*",
@@ -408,6 +432,8 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
       "wafv2:DeleteWebACL",
       "wafv2:AssociateWebACL",
       "wafv2:DisassociateWebACL",
+      "wafv2:PutLoggingConfiguration",
+      "wafv2:DeleteLoggingConfiguration",
       "wafv2:TagResource",
       "wafv2:UntagResource",
     ]
@@ -424,6 +450,8 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
       "cognito-idp:CreateUserPool",
       "cognito-idp:DeleteUserPool",
       "cognito-idp:UpdateUserPool",
+      "cognito-idp:GetUserPoolMfaConfig",
+      "cognito-idp:SetUserPoolMfaConfig",
       "cognito-idp:CreateUserPoolClient",
       "cognito-idp:DeleteUserPoolClient",
       "cognito-idp:UpdateUserPoolClient",
@@ -445,6 +473,8 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
       "apigateway:PUT",
       "apigateway:PATCH",
       "apigateway:DELETE",
+      "apigateway:TagResource",
+      "apigateway:UntagResource",
     ]
     # API Gateway のリソースは /restapis, /apis 等。account 内に限定。
     resources = [
@@ -485,6 +515,7 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
       "secretsmanager:Describe*",
       "secretsmanager:List*",
       "secretsmanager:GetResourcePolicy",
+      "secretsmanager:GetSecretValue",
       "secretsmanager:CreateSecret",
       "secretsmanager:DeleteSecret",
       "secretsmanager:UpdateSecret",
@@ -507,6 +538,8 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
       "logs:PutRetentionPolicy",
+      "logs:AssociateKmsKey",
+      "logs:DisassociateKmsKey",
       "logs:TagResource",
       "logs:UntagResource",
       "logs:TagLogGroup",
@@ -515,7 +548,21 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
     resources = [
       "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/${var.project}-${var.env}/*",
       "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:*",
+      "arn:aws:logs:us-east-1:${local.account_id}:log-group:aws-waf-logs-${local.name_prefix}-*",
     ]
+  }
+
+  # CloudWatch Logs の account-level resource policy API は resource ARN
+  # による制限をサポートしないため Action を3つに限定して分離する。
+  statement {
+    sid    = "CloudWatchLogsResourcePolicy"
+    effect = "Allow"
+    actions = [
+      "logs:DescribeResourcePolicies",
+      "logs:PutResourcePolicy",
+      "logs:DeleteResourcePolicy",
+    ]
+    resources = ["*"]
   }
 
   # --- CloudWatch Alarms / Dashboards --------------------------------------
@@ -534,6 +581,48 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
       "cloudwatch:UntagResource",
     ]
     resources = ["*"]
+  }
+}
+
+# CloudFront scope の WAF ログ暗号化キーは us-east-1 に作成される。
+# KMS key ID は作成前に確定しないため account/Region までで制限し、
+# alias は本 Platform の確定名だけに限定する。
+data "aws_iam_policy_document" "terraform_exec_kms" {
+  statement {
+    sid    = "KMSCreateAndList"
+    effect = "Allow"
+    actions = [
+      "kms:CreateKey",
+      "kms:ListAliases",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "KMSManageWafLogKey"
+    effect = "Allow"
+    actions = [
+      "kms:DescribeKey",
+      "kms:GetKeyPolicy",
+      "kms:PutKeyPolicy",
+      "kms:GetKeyRotationStatus",
+      "kms:EnableKeyRotation",
+      "kms:DisableKeyRotation",
+      "kms:ListResourceTags",
+      "kms:TagResource",
+      "kms:UntagResource",
+      "kms:EnableKey",
+      "kms:DisableKey",
+      "kms:ScheduleKeyDeletion",
+      "kms:CancelKeyDeletion",
+      "kms:CreateAlias",
+      "kms:UpdateAlias",
+      "kms:DeleteAlias",
+    ]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:kms:us-east-1:${local.account_id}:key/*",
+      "arn:${data.aws_partition.current.partition}:kms:us-east-1:${local.account_id}:alias/${local.name_prefix}-waf-logs",
+    ]
   }
 }
 
@@ -572,6 +661,8 @@ data "aws_iam_policy_document" "terraform_exec_iam" {
       "iam:CreateOpenIDConnectProvider", # IRSA 用
       "iam:DeleteOpenIDConnectProvider",
       "iam:TagOpenIDConnectProvider",
+      "iam:UntagOpenIDConnectProvider",
+      "iam:GetOpenIDConnectProvider",
     ]
     resources = [
       "arn:aws:iam::${local.account_id}:role/${local.name_prefix}-*",
@@ -592,12 +683,59 @@ data "aws_iam_policy_document" "terraform_exec_iam" {
       "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-migration-execution-role",
       "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-migration-task-role",
     ]
-    # TerraformがECS task definitionへ設定する4 roleだけを渡せる。EKS、Lambda、
-    # CodeBuild、migration launcher自身はこのPassRole allowlistに含めない。
+    # TerraformがECS task definitionへ設定する4 roleだけを渡せる。
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
       values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "IAMPassRoleEKSCluster"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-eks-cluster-role"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["eks.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "IAMPassRoleEKSFargate"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-eks-fargate-exec-role"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["eks-fargate-pods.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "IAMPassRoleLambdaPortal"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-lambda-portal-role"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["lambda.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "IAMPassRoleVpcFlowLogs"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-vpc-flowlogs-role"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["vpc-flow-logs.amazonaws.com"]
     }
   }
 }
@@ -607,6 +745,7 @@ locals {
     state_network = data.aws_iam_policy_document.terraform_exec_state_network.json
     compute_data  = data.aws_iam_policy_document.terraform_exec_compute_data.json
     edge_app      = data.aws_iam_policy_document.terraform_exec_edge_app.json
+    kms           = data.aws_iam_policy_document.terraform_exec_kms.json
     iam           = data.aws_iam_policy_document.terraform_exec_iam.json
   }
 }

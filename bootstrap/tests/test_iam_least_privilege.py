@@ -191,3 +191,83 @@ def test_terraform_exec_can_read_versioned_artifacts_after_assume():
     assert '"kms:Decrypt"' in code
     assert '"kms:DescribeKey"' in code
     assert "aws_kms_key.artifacts.arn" in code
+
+
+def test_terraform_exec_can_confirm_platform_s3_bucket_creation():
+    """Terraform can verify managed S3 buckets after CreateBucket."""
+    code = read_tf("iam.tf")
+    match = re.search(
+        r'sid\s*=\s*"PlatformS3Manage"(.*?)\n  \}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert match, "PlatformS3Manage statement が見つからない"
+    block = match.group(1)
+    assert '"s3:CreateBucket"' in block
+    assert '"s3:ListBucket"' in block
+    assert '"s3:GetBucketLocation"' in block
+    assert '"s3:GetBucketAcl"' in block
+    assert '"s3:GetBucketOwnershipControls"' in block
+    assert '"s3:GetLifecycleConfiguration"' in block
+    assert '"arn:aws:s3:::${local.name_prefix}-*"' in block
+
+
+def test_terraform_exec_has_provider_follow_up_permissions():
+    """Cover the exact provider read/update calls observed after partial apply."""
+    code = read_tf("iam.tf")
+    required_actions = (
+        "secretsmanager:GetSecretValue",
+        "apigateway:TagResource",
+        "cognito-idp:GetUserPoolMfaConfig",
+        "ecr:GetLifecyclePolicy",
+        "ecs:PutClusterCapacityProviders",
+        "ec2:CreateFlowLogs",
+        "wafv2:PutLoggingConfiguration",
+        "logs:PutResourcePolicy",
+        "kms:TagResource",
+    )
+    for action in required_actions:
+        assert f'"{action}"' in code, f"required Terraform execution action is missing: {action}"
+
+
+def test_service_passrole_permissions_are_exactly_scoped():
+    """EKS, Lambda, and Flow Logs receive only their dedicated service role."""
+    code = read_tf("iam.tf")
+    expected = {
+        "IAMPassRoleEKSCluster": ("-eks-cluster-role", "eks.amazonaws.com"),
+        "IAMPassRoleEKSFargate": (
+            "-eks-fargate-exec-role",
+            "eks-fargate-pods.amazonaws.com",
+        ),
+        "IAMPassRoleLambdaPortal": ("-lambda-portal-role", "lambda.amazonaws.com"),
+        "IAMPassRoleVpcFlowLogs": (
+            "-vpc-flowlogs-role",
+            "vpc-flow-logs.amazonaws.com",
+        ),
+    }
+    for sid, (role_suffix, service) in expected.items():
+        match = re.search(rf'sid\s*=\s*"{sid}"(.*?)\n  \}}', code, flags=re.DOTALL)
+        assert match, f"{sid} statement is missing"
+        block = match.group(1)
+        assert '"iam:PassRole"' in block
+        assert block.count(":role/") == 1
+        assert role_suffix in block
+        assert 'variable = "iam:PassedToService"' in block
+        assert service in block
+        assert "role/${local.name_prefix}-*" not in block
+
+
+def test_waf_kms_management_is_limited_to_us_east_1_account_resources():
+    code = read_tf("iam.tf")
+    match = re.search(
+        r'data\s+"aws_iam_policy_document"\s+"terraform_exec_kms"\s*\{(.*?)\n\}',
+        code,
+        flags=re.DOTALL,
+    )
+    assert match, "terraform_exec_kms policy document is missing"
+    block = match.group(1)
+    assert '"kms:CreateKey"' in block
+    assert '"kms:TagResource"' in block
+    assert "kms:us-east-1:${local.account_id}:key/*" in block
+    assert "kms:us-east-1:${local.account_id}:alias/${local.name_prefix}-waf-logs" in block
+    assert "terraform_exec_kms.json" in code
