@@ -37,3 +37,8 @@ output "app_database_secret_arn" {
   description = "Application-consumption alias for the RDS-managed master credential secret ARN. Future app IAM roles must limit secretsmanager:GetSecretValue to this ARN."
   value       = aws_rds_cluster.this.master_user_secret[0].secret_arn
 }
+
+output "master_user_secret_kms_key_arn" {
+  description = "ARN of the customer-managed KMS key that encrypts the RDS-managed master secret. Consumers use it only for kms:Decrypt through Secrets Manager."
+  value       = local.effective_master_user_secret_kms_key_id
+}

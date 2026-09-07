@@ -68,6 +68,8 @@ def test_rds_manages_master_secret_without_plaintext_tfvars_or_outputs() -> None
     assert not re.search(r"(?m)^\s*master_password\s*=", MAIN)
     assert "aws_secretsmanager_secret_version" not in MAIN
     assert "master_user_secret[0].secret_arn" in OUTPUTS
+    assert 'output "master_user_secret_kms_key_arn"' in OUTPUTS
+    assert "local.effective_master_user_secret_kms_key_id" in OUTPUTS
     assert ".secret_string" not in OUTPUTS
     assert ".password" not in OUTPUTS
     assert not re.search(r"(?mi)^\\s*(?:master_)?password\\s*=", DEV_TFVARS)

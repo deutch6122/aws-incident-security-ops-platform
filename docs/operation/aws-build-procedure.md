@@ -524,7 +524,7 @@ Parameter Sheet 対応: 04、05、07 の Build手順 9。
 
 ### ファイル編集
 
-リポジトリ内ファイルは編集しない。必要値は ecs_deployment と network outputsから環境変数へ渡す。DB passwordを取得・表示しない。
+リポジトリ内ファイルは編集しない。必要値は Terraform の `ecs_deployment`、`ecr_repository_urls`、`aurora` outputs から下記コマンドで自動取得する。値を手入力・転記しない。DB passwordを取得・表示しない。
 
 ### コマンド操作 BP-09-C01
 
@@ -532,8 +532,8 @@ Parameter Sheet 対応: 04、05、07 の Build手順 9。
 | --- | --- |
 | 目的 | migration-launcher-roleをAssumeRoleし、private subnet内Fargate taskでschemaを適用する |
 | 実行ディレクトリ | リポジトリルート |
-| 前提条件 | migration image存在、ECS desired_count=0、Aurora available、output取得済み |
-| 正確なコマンド | 下記。最初は--executeなし、その出力承認後に--execute |
+| 前提条件 | Bootstrapと初回infra apply成功、migration image存在、ECS desired_count=0、Aurora available、AWS CLI認証済み |
+| 正確なコマンド | 下記を上から1ブロックずつ実行する。山括弧の手入力箇所はない。最初は--executeなし、その出力承認後に--execute |
 | dry-run/plan確認 | dry-runでAssumeRole/run-task/wait/describe command、subnet、SG、public IP disabledを確認 |
 | 成功時の期待結果 | lastStatus=STOPPED、essential container exitCode=0、7業務tableと制約が存在 |
 | 失敗時停止条件 | task ARNなし、exitCode≠0、public subnet/public IP、schema確認失敗 |
@@ -542,20 +542,111 @@ Parameter Sheet 対応: 04、05、07 の Build手順 9。
 | 次へ進める条件 | exitCode=0とschema検証の両方が合格 |
 
 ~~~bash
+# 1. 共通値とremote state backendを初期化する
+#    initはstateを読み取れるようにする操作であり、AWSリソースを作成・変更しない。
 export AWS_REGION=ap-northeast-1
-export MIGRATION_LAUNCHER_ROLE_ARN=＜ecs_deployment.migration_launcher_role_arn＞
-export ECS_CLUSTER=＜ecs_deployment.cluster_arn＞
-export ECS_TASK_DEFINITION=＜ecs_deployment.migration_task_definition_arn＞
-export PRIVATE_SUBNET_IDS=＜comma-separated-private-app-subnet-ids＞
-export MIGRATION_SECURITY_GROUP_ID=＜migration-security-group-id＞
+export STATE_BUCKET="$(terraform -chdir=bootstrap output -raw state_bucket_name)"
+test -n "$STATE_BUCKET"
 
+terraform -chdir=infra/environments/dev init \
+  -input=false \
+  -lockfile=readonly \
+  -reconfigure \
+  -backend-config="bucket=$STATE_BUCKET"
+
+# 2. migrationに必要な値をTerraform outputsから自動設定する
+export ECS_DEPLOYMENT_JSON="$(terraform -chdir=infra/environments/dev output -json ecs_deployment)"
+export ECR_REPOSITORIES_JSON="$(terraform -chdir=infra/environments/dev output -json ecr_repository_urls)"
+export AURORA_JSON="$(terraform -chdir=infra/environments/dev output -json aurora)"
+
+export MIGRATION_LAUNCHER_ROLE_ARN="$(jq -er '.migration_launcher_role_arn | select(type == "string" and length > 0)' <<<"$ECS_DEPLOYMENT_JSON")"
+export ECS_CLUSTER="$(jq -er '.migration_cluster_arn | select(type == "string" and length > 0)' <<<"$ECS_DEPLOYMENT_JSON")"
+export ECS_CLUSTER_NAME="$(jq -er '.cluster_name | select(type == "string" and length > 0)' <<<"$ECS_DEPLOYMENT_JSON")"
+export ECS_SERVICE_NAME="$(jq -er '.service_name | select(type == "string" and length > 0)' <<<"$ECS_DEPLOYMENT_JSON")"
+export ECS_TASK_DEFINITION="$(jq -er '.migration_task_definition | select(type == "string" and length > 0)' <<<"$ECS_DEPLOYMENT_JSON")"
+export PRIVATE_SUBNET_IDS="$(jq -er '.private_subnet_ids | select(type == "array" and length > 0) | join(",")' <<<"$ECS_DEPLOYMENT_JSON")"
+export MIGRATION_SECURITY_GROUP_ID="$(jq -er '.migration_security_group_id | select(type == "string" and length > 0)' <<<"$ECS_DEPLOYMENT_JSON")"
+export MIGRATION_REPOSITORY_URL="$(jq -er '.["db-migration"] | select(type == "string" and length > 0)' <<<"$ECR_REPOSITORIES_JSON")"
+export AURORA_CLUSTER_ID="$(jq -er '.cluster_id | select(type == "string" and length > 0)' <<<"$AURORA_JSON")"
+export IMAGE_TAG="$(aws ssm get-parameter \
+  --region "$AWS_REGION" \
+  --name /ops-platform/dev/application-image-tag \
+  --query 'Parameter.Value' \
+  --output text)"
+export EXPECTED_MIGRATION_IMAGE="${MIGRATION_REPOSITORY_URL}:${IMAGE_TAG}"
+
+# 3. 実行前検査。いずれかが失敗した場合は--executeへ進まない
+aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output table
+
+aws ecr describe-images \
+  --region "$AWS_REGION" \
+  --repository-name "${MIGRATION_REPOSITORY_URL##*/}" \
+  --image-ids imageTag="$IMAGE_TAG" \
+  --query 'imageDetails[0].{Digest:imageDigest,PushedAt:imagePushedAt}' \
+  --output table
+
+export ACTUAL_MIGRATION_IMAGE="$(aws ecs describe-task-definition \
+  --region "$AWS_REGION" \
+  --task-definition "$ECS_TASK_DEFINITION" \
+  --query 'taskDefinition.containerDefinitions[?essential==`true`].image | [0]' \
+  --output text)"
+test "$ACTUAL_MIGRATION_IMAGE" = "$EXPECTED_MIGRATION_IMAGE"
+
+test "$(aws rds describe-db-clusters \
+  --region "$AWS_REGION" \
+  --db-cluster-identifier "$AURORA_CLUSTER_ID" \
+  --query 'DBClusters[0].Status' \
+  --output text)" = "available"
+
+test "$(aws ecs describe-services \
+  --region "$AWS_REGION" \
+  --cluster "$ECS_CLUSTER_NAME" \
+  --services "$ECS_SERVICE_NAME" \
+  --query 'services[0].desiredCount' \
+  --output text)" = "0"
+
+printf 'MIGRATION_LAUNCHER_ROLE_ARN=%s\n' "$MIGRATION_LAUNCHER_ROLE_ARN"
+printf 'ECS_CLUSTER=%s\n' "$ECS_CLUSTER"
+printf 'ECS_TASK_DEFINITION=%s\n' "$ECS_TASK_DEFINITION"
+printf 'PRIVATE_SUBNET_IDS=%s\n' "$PRIVATE_SUBNET_IDS"
+printf 'MIGRATION_SECURITY_GROUP_ID=%s\n' "$MIGRATION_SECURITY_GROUP_ID"
+printf 'MIGRATION_IMAGE=%s\n' "$ACTUAL_MIGRATION_IMAGE"
+
+# 4. dry-run。AWSの変更操作は行われない
 scripts/deploy-migration.sh
+~~~
 
-# dry-run承認後のみ
+dry-runに表示された role、cluster、task definition、private subnet、security group、`assignPublicIp=DISABLED` が上記の取得値と一致することを確認する。確認後、実行を承認した場合だけ次を実行する。
+
+~~~bash
+# 5. 承認後のみ実行する
 scripts/deploy-migration.sh --execute
 ~~~
 
-deploy-migration.sh は内部で aws ecs wait tasks-stopped と describe-tasks を行い、exitCode=0以外を失敗として終了する。
+`deploy-migration.sh` は内部で `sts:AssumeRole`、`ecs:RunTask`、`ecs:Wait`、`ecs:DescribeTasks` を行い、先頭のmigration containerの `exitCode=0` 以外を失敗として終了する。DB Secretはcustomer-managed KMS keyで暗号化されるため、migration task roleには対象Secretの `secretsmanager:GetSecretValue` と、対象KMS key限定・Secrets Manager経由限定の `kms:Decrypt` の両方が必要である。成功時は `[done] migration task stopped successfully with exitCode=0.` が表示される。
+
+失敗時は再実行せず、migrationログを確認する。次のコマンドは最新のlog streamを自動選択する。
+
+~~~bash
+export MIGRATION_LOG_GROUP="/ecs/ops-platform-dev-migration"
+export MIGRATION_LOG_STREAM="$(aws logs describe-log-streams \
+  --region "$AWS_REGION" \
+  --log-group-name "$MIGRATION_LOG_GROUP" \
+  --order-by LastEventTime \
+  --descending \
+  --max-items 1 \
+  --query 'logStreams[0].logStreamName' \
+  --output text)"
+
+aws logs get-log-events \
+  --region "$AWS_REGION" \
+  --log-group-name "$MIGRATION_LOG_GROUP" \
+  --log-stream-name "$MIGRATION_LOG_STREAM" \
+  --start-from-head \
+  --limit 500 \
+  --query 'events[].message' \
+  --output text
+~~~
 
 ## 手順10. ECS desired_count=1 の再plan・承認・apply
 

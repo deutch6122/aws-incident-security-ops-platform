@@ -133,6 +133,7 @@ module "iam" {
   migration_ecr_repository_arn = module.ecr.repository_arns["db-migration"]
   backend_bearer_secret_arn    = aws_secretsmanager_secret.backend_bearer.arn
   db_secret_arn                = module.aurora.app_database_secret_arn
+  db_secret_kms_key_arn        = module.aurora.master_user_secret_kms_key_arn
 
   migration_launcher_trusted_principal_arns = var.migration_launcher_trusted_principal_arns
 }
@@ -274,6 +275,7 @@ module "eks" {
   private_subnet_ids            = values(module.network.private_app_subnet_ids)
   eks_security_group_id         = module.network.security_group_ids.eks
   db_secret_arn                 = module.aurora.app_database_secret_arn
+  db_secret_kms_key_arn         = module.aurora.master_user_secret_kms_key_arn
   alarm_queue_arn               = module.messaging.alarm_queue_arn
   finding_queue_arn             = module.messaging.finding_queue_arn
   eks_public_access_cidrs       = var.eks_public_access_cidrs

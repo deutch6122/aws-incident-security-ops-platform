@@ -1,5 +1,6 @@
 data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
 locals {
   cluster_name = "${var.name_prefix}-eks"
@@ -276,6 +277,17 @@ resource "aws_iam_role_policy" "alarm_worker" {
         Resource = [var.db_secret_arn]
       },
       {
+        Sid      = "KmsDecryptDbCredential"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [var.db_secret_kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
+      },
+      {
         Sid    = "CloudWatchLogsWrite"
         Effect = "Allow"
         Action = [
@@ -341,6 +353,17 @@ resource "aws_iam_role_policy" "finding_worker" {
         Resource = [var.db_secret_arn]
       },
       {
+        Sid      = "KmsDecryptDbCredential"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [var.db_secret_kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
+      },
+      {
         Sid    = "CloudWatchLogsWrite"
         Effect = "Allow"
         Action = [
@@ -400,6 +423,17 @@ resource "aws_iam_role_policy" "cronjob" {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [var.db_secret_arn]
+      },
+      {
+        Sid      = "KmsDecryptDbCredential"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [var.db_secret_kms_key_arn]
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "secretsmanager.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
       },
       {
         Sid    = "CloudWatchLogsWrite"
