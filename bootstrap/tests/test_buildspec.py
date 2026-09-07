@@ -116,4 +116,10 @@ def test_apply_requires_approved_plan_lock_and_s3_object_identity():
         assert "-lockfile=readonly" in content
         assert "s3api head-object" in content
         assert "--version-id \"$PACKAGE_VERSION\"" in content
+        assert "HEAD_OBJECT_JSON=" in content
+        assert "jq -r '.Metadata[\"source-code-hash\"] // empty'" in content
+        assert "Lambda package metadata source-code-hash was not found" in content
+        assert "Lambda package source-code-hash mismatch" in content
+        assert "Lambda package integrity check: OK" in content
+        assert "Metadata.source-code-hash" not in content
         assert 'PLAN_FILE="$TF_WORKDIR/tfplan.binary"' not in content

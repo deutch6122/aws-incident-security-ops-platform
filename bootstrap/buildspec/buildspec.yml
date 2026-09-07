@@ -129,7 +129,11 @@ phases:
             test "$(sha256sum "$PLAN_LOCK" | awk '{print $1}')" = "$(jq -r .lock_sha256 "$PACKAGE_METADATA")"
             test "$(terraform version -json | jq -r .terraform_version)" = "$(jq -r .terraform_version "$PACKAGE_METADATA")"
             PACKAGE_BUCKET="$(jq -r .bucket "$PACKAGE_METADATA")"; PACKAGE_KEY="$(jq -r .key "$PACKAGE_METADATA")"; PACKAGE_VERSION="$(jq -r .version "$PACKAGE_METADATA")"; PACKAGE_HASH="$(jq -r .source_code_hash "$PACKAGE_METADATA")"
-            test "$(aws s3api head-object --bucket "$PACKAGE_BUCKET" --key "$PACKAGE_KEY" --version-id "$PACKAGE_VERSION" --query 'Metadata.source-code-hash' --output text)" = "$PACKAGE_HASH"
+            HEAD_OBJECT_JSON="$(aws s3api head-object --bucket "$PACKAGE_BUCKET" --key "$PACKAGE_KEY" --version-id "$PACKAGE_VERSION" --output json)"
+            REMOTE_HASH="$(echo "$HEAD_OBJECT_JSON" | jq -r '.Metadata["source-code-hash"] // empty')"
+            test -n "$REMOTE_HASH" || { echo "Lambda package metadata source-code-hash was not found" >&2; exit 1; }
+            test "$REMOTE_HASH" = "$PACKAGE_HASH" || { echo "Lambda package source-code-hash mismatch: expected=$PACKAGE_HASH actual=$REMOTE_HASH" >&2; exit 1; }
+            echo "Lambda package integrity check: OK"
             echo "適用対象 plan: $PLAN_FILE"
             terraform -chdir="$TF_WORKDIR" init -input=false -lockfile=readonly -backend-config="bucket=$TF_BACKEND_BUCKET"
             # plan バイナリは絶対/相対いずれのパスでも受け付けられるよう解決済みパスを渡す。
