@@ -163,15 +163,21 @@ resource "aws_route_table_association" "isolated_db" {
   route_table_id = aws_route_table.isolated_db.id
 }
 
-# Security groups use standalone VPC security-group rule resources. egress = []
-# removes the AWS-created implicit allow-all egress before explicit rules are
-# added, including for the DB security group which intentionally has no egress.
+# Security groups use standalone VPC security-group rule resources. Empty
+# inline rules remove AWS's implicit allow-all egress during initial creation.
+# After creation, ignore_changes prevents the aws_security_group resources from
+# reconciling the standalone rules as inline rules and removing them. All rule
+# lifecycle changes are owned by the aws_vpc_security_group_*_rule resources.
 resource "aws_security_group" "alb" {
   name        = "${var.name_prefix}-alb-sg"
   description = "Ingress boundary for the future ALB; HTTPS only from trusted CIDRs."
   vpc_id      = aws_vpc.this.id
   ingress     = []
   egress      = []
+
+  lifecycle {
+    ignore_changes = [ingress, egress]
+  }
 
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-alb-sg"
@@ -186,6 +192,10 @@ resource "aws_security_group" "ecs" {
   ingress     = []
   egress      = []
 
+  lifecycle {
+    ignore_changes = [ingress, egress]
+  }
+
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-ecs-sg"
     Role = "ecs"
@@ -199,6 +209,10 @@ resource "aws_security_group" "eks" {
   ingress     = []
   egress      = []
 
+  lifecycle {
+    ignore_changes = [ingress, egress]
+  }
+
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-eks-sg"
     Role = "eks"
@@ -211,6 +225,10 @@ resource "aws_security_group" "db" {
   vpc_id      = aws_vpc.this.id
   ingress     = []
   egress      = []
+
+  lifecycle {
+    ignore_changes = [ingress, egress]
+  }
 
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-db-sg"
@@ -234,6 +252,10 @@ resource "aws_security_group" "migration" {
   vpc_id      = aws_vpc.this.id
   ingress     = []
   egress      = []
+
+  lifecycle {
+    ignore_changes = [ingress, egress]
+  }
 
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-migration-sg"
@@ -402,6 +424,10 @@ resource "aws_security_group" "vpc_endpoint" {
   vpc_id      = aws_vpc.this.id
   ingress     = []
   egress      = []
+
+  lifecycle {
+    ignore_changes = [ingress, egress]
+  }
 
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-vpce-sg"

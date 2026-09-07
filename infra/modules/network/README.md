@@ -7,7 +7,7 @@ Creates the Product_A dev network foundation: one VPC, two AZs (`ap-northeast-1a
 - `allowed_alb_ingress_cidrs` defaults to the documentation-only `203.0.113.0/24`; it is **not** `0.0.0.0/0` and must be replaced with trusted operator CIDRs before deployment. The module creates HTTPS/443 ingress only; it deliberately creates no HTTP/80 redirect rule because the ALB itself is a later task.
 - ECS accepts `app_port` (`8080` by default; `8000` is also supported) only from the ALB SG. ECS/EKS have no inbound rules because EKS workers are SQS-driven.
 - ECS and EKS can reach Aurora only over PostgreSQL/5432. The DB SG accepts that port only from ECS and EKS and has no egress rule.
-- AWS's implicit SG egress is removed with `egress = []`; every required egress is created explicitly with `aws_vpc_security_group_*_rule` resources. HTTPS/443 egress is explicit and configurable through `external_https_egress_cidrs`.
+- AWSの暗黙的な全許可egressは新規作成時の`egress = []`で除去します。作成後はSecurity Group本体の`ingress`/`egress`を`ignore_changes`対象とし、実際の通信ルールは`aws_vpc_security_group_ingress_rule`と`aws_vpc_security_group_egress_rule`だけで管理します。これにより本体と専用ルールの競合を防ぎます。HTTPS/443 egressは`external_https_egress_cidrs`で明示的に設定します。
 - The isolated DB route table has no NAT or Internet Gateway default route. It retains only VPC-local routing.
 
 ## NAT and endpoints
