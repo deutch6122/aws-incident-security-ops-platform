@@ -28,6 +28,18 @@
     return item.status_id;
   }
 
+  function statusTextFor(item) {
+    return item.state || item.status || "";
+  }
+
+  function statusBodyFor(item) {
+    return item.overview || item.message || statusTextFor(item);
+  }
+
+  function reportStorageKeyFor(report) {
+    return report.s3_key || report.storage_key || "";
+  }
+
   // --- login page ----------------------------------------------------------
   function initLoginPage() {
     var button = qs("login-button");
@@ -74,7 +86,7 @@
         items.forEach(function (item) {
           var li = doc.createElement("li");
           var link = doc.createElement("a");
-          link.textContent = text(item.title) + " (" + text(item.state) + ")";
+          link.textContent = text(item.title) + " (" + text(statusTextFor(item)) + ")";
           // Detail link uses a query param, and the API path is built safely.
           link.setAttribute(
             "href",
@@ -102,7 +114,7 @@
         var title = doc.createElement("h2");
         title.textContent = text(item.title);
         var body = doc.createElement("p");
-        body.textContent = text(item.overview || item.state);
+        body.textContent = text(statusBodyFor(item));
         container.appendChild(title);
         container.appendChild(body);
       })
@@ -153,7 +165,7 @@
         var meta = doc.createElement("p");
         meta.textContent = "期間: " + text(report.period);
         var fileRef = doc.createElement("p");
-        fileRef.textContent = "ファイル参照: " + text(report.s3_key);
+        fileRef.textContent = "ファイル参照: " + text(reportStorageKeyFor(report));
         container.appendChild(title);
         container.appendChild(meta);
         container.appendChild(fileRef);

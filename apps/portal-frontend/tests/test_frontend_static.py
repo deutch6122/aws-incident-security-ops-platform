@@ -116,3 +116,15 @@ def test_pages_build_detail_links_via_safe_helpers() -> None:
     assert "encodeURIComponent" in pages
     assert "getStatus" in pages
     assert "getReport" in pages
+
+
+def test_pages_accept_seeded_status_and_report_field_names() -> None:
+    pages = _read("js/pages.js")
+    # Seeded/live DynamoDB data uses status/message and storage_key, while older
+    # fixtures used state/overview and s3_key. The page layer accepts both.
+    assert "statusTextFor" in pages
+    assert "item.state || item.status" in pages
+    assert "statusBodyFor" in pages
+    assert "item.overview || item.message" in pages
+    assert "reportStorageKeyFor" in pages
+    assert "report.s3_key || report.storage_key" in pages
