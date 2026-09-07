@@ -364,6 +364,14 @@ def test_frontend_script_generates_config_and_scans_before_sync() -> None:
     assert "unresolved placeholder found" in text
     assert text.index("unresolved placeholder found") < text.index("run aws s3 sync")
     assert 'run aws s3 sync "${GENERATED_DIR}/"' in text
+    assert 'run aws s3 cp "${GENERATED_DIR}/callback"' in text
+    assert 'run aws s3 cp "${GENERATED_DIR}/config.js"' in text
+    assert '"text/html; charset=utf-8"' in text
+    assert '"application/javascript; charset=utf-8"' in text
+    assert '"no-store"' in text
+    assert "--metadata-directive REPLACE" in text
+    assert text.index('run aws s3 sync "${GENERATED_DIR}/"') < text.index('run aws s3 cp "${GENERATED_DIR}/callback"')
+    assert text.index('run aws s3 cp "${GENERATED_DIR}/config.js"') < text.index("run aws cloudfront create-invalidation")
 
 
 def test_frontend_default_dry_run_generates_config_without_aws(tmp_path: Path) -> None:
@@ -388,6 +396,9 @@ def test_frontend_default_dry_run_generates_config_without_aws(tmp_path: Path) -
     assert not marker.exists()
     assert "generated config.js" in result.stdout
     assert "[dry-run] aws s3 sync" in result.stdout
+    assert "[dry-run] aws s3 cp" in result.stdout
+    assert "s3://ops-platform-dev-portal-example/callback" in result.stdout
+    assert "s3://ops-platform-dev-portal-example/config.js" in result.stdout
 
 
 def test_frontend_placeholder_failure_prevents_aws(tmp_path: Path) -> None:
@@ -404,6 +415,10 @@ def test_frontend_placeholder_failure_prevents_aws(tmp_path: Path) -> None:
     frontend.mkdir()
     (frontend / "index.html").write_text(
         "<html><script src='config.js'></script><p>REPLACE_WITH_UNRESOLVED</p></html>",
+        encoding="utf-8",
+    )
+    (frontend / "callback").write_text(
+        "<html><script src='config.js'></script><p>callback</p></html>",
         encoding="utf-8",
     )
     (frontend / "config.js").write_text("placeholder", encoding="utf-8")

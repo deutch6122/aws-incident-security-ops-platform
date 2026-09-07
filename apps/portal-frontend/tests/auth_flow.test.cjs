@@ -11,8 +11,8 @@ const source = fs.readFileSync(
   "utf8"
 );
 
-function loadAuth(fetchImpl) {
-  const values = new Map();
+function loadAuth(fetchImpl, sharedValues) {
+  const values = sharedValues || new Map();
   const redirects = [];
   let now = 1_700_000_000_000;
   const sessionStorage = {
@@ -75,7 +75,7 @@ test("state mismatch rejects before token exchange and stores no token", async (
   assert.equal(fixture.values.has("portal_pkce_verifier"), false);
 });
 
-test("valid callback exchanges code, keeps token in memory, and enforces expiry", async () => {
+test("valid callback exchanges code, persists token for the browser session, and enforces expiry", async () => {
   let request;
   const fixture = loadAuth(async (url, options) => {
     request = { url, options };
@@ -91,9 +91,15 @@ test("valid callback exchanges code, keeps token in memory, and enforces expiry"
   assert.equal(request.options.body.includes("grant_type=authorization_code"), true);
   assert.equal(request.options.body.includes("code_verifier="), true);
   assert.equal(fixture.auth.getAccessToken(), "access-value");
-  assert.equal([...fixture.values.keys()].some((key) => key.includes("token")), false);
+  assert.equal(fixture.values.has("portal_auth_tokens"), true);
+
+  const reloaded = loadAuth(async () => { throw new Error("fetch must not run"); }, fixture.values);
+  assert.equal(reloaded.auth.getAccessToken(), "access-value");
+  assert.equal(reloaded.auth.getIdToken(), "id-value");
+
   fixture.advance(60_001);
   assert.equal(fixture.auth.getAccessToken(), null);
+  assert.equal(fixture.values.has("portal_auth_tokens"), false);
 });
 
 test("logout clears memory and flow data then redirects to Cognito logout", async () => {

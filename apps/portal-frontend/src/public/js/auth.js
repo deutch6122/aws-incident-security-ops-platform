@@ -1,6 +1,6 @@
-/* Cognito authorization-code + PKCE client. Tokens live only in this module's
- * memory and expire according to expires_in. sessionStorage holds only the
- * short-lived state and PKCE verifier and is cleared after callback/logout. */
+/* Cognito authorization-code + PKCE client. Tokens are session-scoped,
+ * expiry-aware, and cleared on logout. OAuth state and PKCE verifier are
+ * short-lived values that are cleared after callback/logout. */
 (function (global) {
   "use strict";
 
@@ -8,7 +8,37 @@
 
   var FLOW_STATE_KEY = "portal_oauth_state";
   var PKCE_VERIFIER_KEY = "portal_pkce_verifier";
-  var tokens = { accessToken: null, idToken: null, expiresAt: 0 };
+  var TOKEN_STORE_KEY = "portal_auth_tokens";
+
+  function emptyTokens() {
+    return { accessToken: null, idToken: null, expiresAt: 0 };
+  }
+
+  function loadTokens() {
+    try {
+      var raw = global.sessionStorage.getItem(TOKEN_STORE_KEY);
+      if (!raw) { return emptyTokens(); }
+      var stored = JSON.parse(raw);
+      if (!stored || typeof stored.accessToken !== "string" || !stored.accessToken) {
+        global.sessionStorage.removeItem(TOKEN_STORE_KEY);
+        return emptyTokens();
+      }
+      if (!Number.isFinite(Number(stored.expiresAt)) || Date.now() >= Number(stored.expiresAt)) {
+        global.sessionStorage.removeItem(TOKEN_STORE_KEY);
+        return emptyTokens();
+      }
+      return {
+        accessToken: stored.accessToken,
+        idToken: stored.idToken || null,
+        expiresAt: Number(stored.expiresAt),
+      };
+    } catch (e) {
+      try { global.sessionStorage.removeItem(TOKEN_STORE_KEY); } catch (ignored) { /* storage may be unavailable */ }
+      return emptyTokens();
+    }
+  }
+
+  var tokens = loadTokens();
 
   function base64Url(bytes) {
     var binary = "";
@@ -41,7 +71,19 @@
   }
 
   function clearTokens() {
-    tokens = { accessToken: null, idToken: null, expiresAt: 0 };
+    tokens = emptyTokens();
+    try {
+      global.sessionStorage.removeItem(TOKEN_STORE_KEY);
+    } catch (e) { /* storage may be unavailable */ }
+  }
+
+  function saveTokens(nextTokens) {
+    tokens = nextTokens;
+    try {
+      global.sessionStorage.setItem(TOKEN_STORE_KEY, JSON.stringify(nextTokens));
+    } catch (e) {
+      /* Keep the current page authenticated even when storage is unavailable. */
+    }
   }
 
   function getAccessToken() {
@@ -123,11 +165,11 @@
       clearFlowData();
       throw new Error("token response is invalid");
     }
-    tokens = {
+    saveTokens({
       accessToken: payload.access_token,
       idToken: payload.id_token || null,
       expiresAt: Date.now() + lifetime * 1000,
-    };
+    });
     clearFlowData();
     return true;
   }

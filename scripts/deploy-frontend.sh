@@ -122,6 +122,10 @@ if [[ ! -f "${FRONTEND_DIR}/index.html" ]]; then
   echo "$SCRIPT_NAME: expected entrypoint not found: ${FRONTEND_DIR}/index.html" >&2
   exit 1
 fi
+if [[ ! -f "${FRONTEND_DIR}/callback" ]]; then
+  echo "$SCRIPT_NAME: expected callback page not found: ${FRONTEND_DIR}/callback" >&2
+  exit 1
+fi
 echo "[info] verified static files under ${FRONTEND_DIR}"
 
 # Validate values before embedding them into JavaScript. The caller supplies
@@ -162,6 +166,22 @@ echo "[info] generated config.js and verified that no placeholders remain"
 run aws s3 sync "${GENERATED_DIR}/" "s3://${S3_BUCKET}/" \
   --region "${AWS_REGION}" \
   --delete
+
+# 2b) Ensure browser-critical metadata is stable across deploys.
+#     The callback object has no extension, so plain sync may upload it as
+#     binary/octet-stream. config.js must not be cached because it carries the
+#     current Cognito/CloudFront deployment coordinates.
+run aws s3 cp "${GENERATED_DIR}/callback" "s3://${S3_BUCKET}/callback" \
+  --region "${AWS_REGION}" \
+  --content-type "text/html; charset=utf-8" \
+  --cache-control "no-store" \
+  --metadata-directive REPLACE
+
+run aws s3 cp "${GENERATED_DIR}/config.js" "s3://${S3_BUCKET}/config.js" \
+  --region "${AWS_REGION}" \
+  --content-type "application/javascript; charset=utf-8" \
+  --cache-control "no-store" \
+  --metadata-directive REPLACE
 
 # 3) CloudFront invalidation
 run aws cloudfront create-invalidation \
