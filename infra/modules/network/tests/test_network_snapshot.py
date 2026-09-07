@@ -61,9 +61,11 @@ def test_security_groups_have_minimum_ingress_and_explicit_egress() -> None:
         assert "referenced_security_group_id" in rule
     assert 'resource "aws_vpc_security_group_egress_rule" "ecs_to_db"' in MAIN
     assert 'resource "aws_vpc_security_group_egress_rule" "eks_to_db"' in MAIN
-    for group in ("alb", "ecs", "eks", "db"):
+    for group in ("alb", "ecs", "eks", "db", "migration", "vpc_endpoint"):
         block = _resource_block("aws_security_group", group)
         assert "egress      = []" in block
+        assert "ingress     = []" in block
+        assert "ignore_changes = [ingress, egress]" in block
     assert 'resource "aws_vpc_security_group_egress_rule" "ecs_https_external"' in MAIN
     assert 'resource "aws_vpc_security_group_egress_rule" "eks_https_external"' in MAIN
 
