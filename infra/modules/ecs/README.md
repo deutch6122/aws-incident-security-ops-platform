@@ -14,7 +14,7 @@ This module defines the Product_A backend API compute on ECS Fargate for the dev
 
 ## Secrets Manager reference (ARN only, no plaintext)
 
-`BACKEND_DB_SECRET_ARN` is placed in the normal environment as an ARN string only, and `BACKEND_DB_NAME` supplies the fallback database name. The Backend application uses its task role to fetch the DB secret at runtime. The secret payload is never placed in Terraform configuration or environment values.
+`BACKEND_DB_SECRET_ARN` is placed in the normal environment as an ARN string only. `BACKEND_DB_HOST`, `BACKEND_DB_PORT`, and `BACKEND_DB_NAME` supply non-secret endpoint configuration when the RDS-managed secret contains only username/password. The Backend application uses its task role to fetch the DB secret at runtime. The secret payload is never placed in Terraform configuration or environment values.
 
 `BACKEND_INTERNAL_BEARER_TOKEN` is injected through the ECS `secrets` block from `backend_bearer_secret_arn`. ECS uses the task execution role to resolve it at container startup.
 
@@ -31,7 +31,7 @@ This module defines the Product_A backend API compute on ECS Fargate for the dev
 
 ## One-off database migration task
 
-The module also defines a separate `<name_prefix>-db-migration` Fargate task definition. It uses the dedicated migration execution/task roles and the `migration_container_image`; it is never attached to an ECS service. The runner receives only `BACKEND_DB_SECRET_ARN` and `BACKEND_DB_NAME`, writes to `/ecs/<name_prefix>-migration`, and is launched in the private application subnets by `scripts/deploy-migration.sh` after the initial infrastructure phase.
+The module also defines a separate `<name_prefix>-db-migration` Fargate task definition. It uses the dedicated migration execution/task roles and the `migration_container_image`; it is never attached to an ECS service. The runner receives `BACKEND_DB_SECRET_ARN`, `BACKEND_DB_HOST`, `BACKEND_DB_PORT`, and `BACKEND_DB_NAME`, writes to `/ecs/<name_prefix>-migration`, and is launched in the private application subnets by `scripts/deploy-migration.sh` after the initial infrastructure phase.
 
 The Backend image and migration image remain separate. Migration SQL is packaged only by `apps/db-migration/Dockerfile`, whose build context is the repository root.
 

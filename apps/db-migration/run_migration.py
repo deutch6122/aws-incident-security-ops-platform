@@ -23,7 +23,26 @@ class DatabaseCredentials:
     dbname: str
 
 
-def parse_credentials(payload: str, fallback_db_name: str | None) -> DatabaseCredentials:
+def _non_empty_text(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise MigrationConfigurationError(f"database {field_name} is not configured")
+    return value.strip()
+
+
+def _parse_port(value: object) -> int:
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
+        raise MigrationConfigurationError("database port is not configured")
+    return value
+
+
+def parse_credentials(
+    payload: str,
+    fallback_db_name: str | None,
+    fallback_host: str | None = None,
+    fallback_port: str | int | None = None,
+) -> DatabaseCredentials:
     try:
         raw: Any = json.loads(payload)
     except (TypeError, json.JSONDecodeError) as exc:
@@ -32,20 +51,19 @@ def parse_credentials(payload: str, fallback_db_name: str | None) -> DatabaseCre
     if not isinstance(raw, dict):
         raise MigrationConfigurationError("database secret must be a JSON object")
 
-    missing = [key for key in ("username", "password", "host", "port") if key not in raw]
+    missing = [key for key in ("username", "password") if key not in raw]
     if missing:
         raise MigrationConfigurationError("database secret is missing required fields")
 
     text_fields: dict[str, str] = {}
-    for key in ("username", "password", "host"):
+    for key in ("username", "password"):
         value = raw[key]
         if not isinstance(value, str) or not value or (key != "password" and not value.strip()):
             raise MigrationConfigurationError("database secret contains an invalid required field")
         text_fields[key] = value if key == "password" else value.strip()
 
-    port = raw["port"]
-    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
-        raise MigrationConfigurationError("database secret contains an invalid port")
+    host = _non_empty_text(raw.get("host", fallback_host), "host")
+    port = _parse_port(raw.get("port", fallback_port))
 
     secret_dbname = raw.get("dbname")
     if secret_dbname is not None and not isinstance(secret_dbname, str):
@@ -56,7 +74,7 @@ def parse_credentials(payload: str, fallback_db_name: str | None) -> DatabaseCre
     if not dbname:
         raise MigrationConfigurationError("database name is not configured")
 
-    return DatabaseCredentials(port=port, dbname=dbname, **text_fields)
+    return DatabaseCredentials(host=host, port=port, dbname=dbname, **text_fields)
 
 
 def load_secret_string(client: Any, secret_arn: str) -> str:
@@ -99,7 +117,12 @@ def main() -> int:
 
         client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION") or None)
         payload = load_secret_string(client, secret_arn)
-        credentials = parse_credentials(payload, os.getenv("BACKEND_DB_NAME"))
+        credentials = parse_credentials(
+            payload,
+            os.getenv("BACKEND_DB_NAME"),
+            os.getenv("BACKEND_DB_HOST"),
+            os.getenv("BACKEND_DB_PORT"),
+        )
         files = forward_migration_files(Path(os.getenv("MIGRATIONS_DIR", "/opt/migrations")))
 
         with psycopg.connect(

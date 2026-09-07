@@ -14,10 +14,12 @@ class Settings(BaseSettings):
     app_name: str = "Product_A Backend API"
     aws_region: str = "ap-northeast-1"
     db_secret_arn: str | None = None
+    db_host: str | None = None
+    db_port: int | None = None
     db_name: str | None = None
     internal_bearer_token: SecretStr | None = None
 
-    @field_validator("aws_region", "db_secret_arn", "db_name")
+    @field_validator("aws_region", "db_secret_arn", "db_host", "db_name")
     @classmethod
     def validate_non_empty_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -26,6 +28,13 @@ class Settings(BaseSettings):
         if not normalized:
             raise ValueError("configured text values must not be empty")
         return normalized
+
+    @field_validator("db_port")
+    @classmethod
+    def validate_db_port(cls, value: int | None) -> int | None:
+        if value is not None and not 1 <= value <= 65535:
+            raise ValueError("db_port must be from 1 to 65535")
+        return value
 
     @field_validator("internal_bearer_token")
     @classmethod

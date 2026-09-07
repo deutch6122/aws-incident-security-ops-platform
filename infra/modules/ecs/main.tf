@@ -28,6 +28,14 @@ locals {
           value = var.backend_db_secret_arn
         },
         {
+          name  = "BACKEND_DB_HOST"
+          value = var.backend_db_host
+        },
+        {
+          name  = "BACKEND_DB_PORT"
+          value = tostring(var.backend_db_port)
+        },
+        {
           name  = "BACKEND_DB_NAME"
           value = var.backend_db_name
         },
@@ -61,6 +69,14 @@ locals {
         {
           name  = "BACKEND_DB_SECRET_ARN"
           value = var.backend_db_secret_arn
+        },
+        {
+          name  = "BACKEND_DB_HOST"
+          value = var.backend_db_host
+        },
+        {
+          name  = "BACKEND_DB_PORT"
+          value = tostring(var.backend_db_port)
         },
         {
           name  = "BACKEND_DB_NAME"

@@ -259,6 +259,8 @@ module "ecs" {
   container_image           = local.application_images.backend
   migration_container_image = local.application_images.migration
   backend_db_secret_arn     = module.aurora.app_database_secret_arn
+  backend_db_host           = module.aurora.cluster_endpoint
+  backend_db_port           = module.aurora.port
   backend_db_name           = module.aurora.database_name
   backend_bearer_secret_arn = aws_secretsmanager_secret.backend_bearer.arn
   app_port                  = var.network_app_port

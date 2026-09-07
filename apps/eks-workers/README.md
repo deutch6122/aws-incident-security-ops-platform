@@ -34,7 +34,7 @@ workers/
 
 ## Secrets Manager / DB 接続の扱い
 
-- DB 認証情報は **Secrets Manager の ARN 参照のみ**（`WORKER_DB_SECRET_ARN`）。パスワードや接続 URL 全体は設定・ログ・例外・manifest に一切現れない。
+- DB 認証情報は **Secrets Manager の ARN 参照のみ**（`WORKER_DB_SECRET_ARN`）。Aurora endpoint、port、database name は非機微の `WORKER_DB_HOST` / `WORKER_DB_PORT` / `WORKER_DB_NAME` で渡す。パスワードや接続 URL 全体は設定・ログ・例外・manifest に一切現れない。
 - `workers/db/secrets.py` は backend-api の `app/db/secrets.py` と同一方針（ARN 参照・boto3 遅延生成・URL は `URL.create` で安全構築・エラーメッセージに値を埋めない）。
 - **import 時に AWS/DB へ接続しない**。boto3 クライアントと SQLAlchemy エンジンは初回利用時に生成する。
 
@@ -57,7 +57,8 @@ manifest には実 ARN・実イメージ URI を書かない。`scripts/deploy-e
 - `${EKS_FINDING_WORKER_ROLE_ARN}` … eks module 出力 `finding_worker_role_arn`
 - `${EKS_CRONJOB_ROLE_ARN}` … eks module 出力 `cronjob_role_arn`
 - `${ALARM_WORKER_IMAGE}` / `${FINDING_WORKER_IMAGE}` / `${SUMMARY_CRONJOB_IMAGE}` … workload別ECRイメージURI
-- `${WORKER_DB_SECRET_ARN}` … aurora module 出力（Secrets Manager ARN、値ではない）
+- `${WORKER_DB_SECRET_ARN}` … ECS migration task definitionの `BACKEND_DB_SECRET_ARN` と同じSecrets Manager ARN（値ではない）
+- `${WORKER_DB_HOST}` / `${WORKER_DB_PORT}` / `${WORKER_DB_NAME}` … aurora output の非機微接続メタデータ
 - `${ALARM_QUEUE_URL}` / `${FINDING_QUEUE_URL}` … messaging moduleの各queue URL
 - `${AWS_REGION}` / `${WORKER_LOG_GROUP_NAME}` … region と eks module 出力 `worker_log_group_name`
 - `${PORTAL_REPORTS_BUCKET}` / `${PORTAL_REPORT_METADATA_TABLE}` / `${PORTAL_PUBLIC_STATUS_ITEMS_TABLE}` … Cronjob_Summary の3つのProduct_B書込先

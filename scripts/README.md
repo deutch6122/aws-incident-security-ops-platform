@@ -110,6 +110,9 @@ AWS_REGION=ap-northeast-1 AWS_ACCOUNT_ID=<account-id> \
   EKS_FINDING_WORKER_ROLE_ARN=<finding-role-arn> \
   EKS_CRONJOB_ROLE_ARN=<cronjob-role-arn> \
   WORKER_DB_SECRET_ARN=<database-secret-arn> \
+  WORKER_DB_HOST=<aurora-writer-endpoint> \
+  WORKER_DB_PORT=5432 \
+  WORKER_DB_NAME=opsplatform \
   ALARM_QUEUE_URL=<alarm-queue-url> \
   FINDING_QUEUE_URL=<finding-queue-url> \
   WORKER_LOG_GROUP_NAME=/ops-platform-dev/eks/workers \

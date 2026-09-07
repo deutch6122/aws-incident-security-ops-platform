@@ -44,17 +44,18 @@ class Boto3SecretReader:
 class DatabaseSecret:
     username: str
     password: str = field(repr=False)
-    host: str
-    port: int
+    host: str | None = None
+    port: int | None = None
     # RDS-managed rotation secrets may omit dbname entirely, so it is optional.
     # An absent or blank dbname is normalized to None here and resolved later via
     # the BACKEND_DB_NAME fallback (see resolve_database_name).
     dbname: str | None = None
 
 
-# dbname is intentionally NOT required: RDS-managed secrets often omit it. The
-# username/password/host/port fields remain mandatory.
-_REQUIRED_KEYS = frozenset({"username", "password", "host", "port"})
+# RDS-managed master-user secrets may contain only username/password. Endpoint,
+# port, and database name are non-secret values supplied through ECS environment
+# variables when the secret omits them.
+_REQUIRED_KEYS = frozenset({"username", "password"})
 
 
 def parse_database_secret(payload: str) -> DatabaseSecret:
@@ -74,10 +75,10 @@ def parse_database_secret(payload: str) -> DatabaseSecret:
             "database secret is missing required keys: " + ", ".join(missing)
         )
 
-    # Required text fields (username/password/host). These keep their existing
-    # strict non-empty validation; the dbname relaxation below does not weaken it.
+    # Required text fields (username/password). These keep their existing strict
+    # non-empty validation; host/port/dbname are resolved separately below.
     text_values: dict[str, str] = {}
-    for key in ("username", "password", "host"):
+    for key in ("username", "password"):
         value = raw[key]
         if not isinstance(value, str) or not value:
             raise DatabaseConfigurationError(f"database secret field {key} must be non-empty text")
@@ -85,9 +86,19 @@ def parse_database_secret(payload: str) -> DatabaseSecret:
             raise DatabaseConfigurationError(f"database secret field {key} must be non-empty text")
         text_values[key] = value if key == "password" else value.strip()
 
-    port = raw["port"]
-    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
-        raise DatabaseConfigurationError("database secret field port must be an integer from 1 to 65535")
+    host: str | None = None
+    if "host" in raw:
+        raw_host = raw["host"]
+        if not isinstance(raw_host, str) or not raw_host.strip():
+            raise DatabaseConfigurationError("database secret field host must be non-empty text")
+        host = raw_host.strip()
+
+    port: int | None = None
+    if "port" in raw:
+        raw_port = raw["port"]
+        if isinstance(raw_port, bool) or not isinstance(raw_port, int) or not 1 <= raw_port <= 65535:
+            raise DatabaseConfigurationError("database secret field port must be an integer from 1 to 65535")
+        port = raw_port
 
     # Optional dbname handling:
     #   - absent            -> None
@@ -107,7 +118,7 @@ def parse_database_secret(payload: str) -> DatabaseSecret:
         else:
             raise DatabaseConfigurationError("database secret field dbname must be text when present")
 
-    return DatabaseSecret(port=port, dbname=dbname, **text_values)
+    return DatabaseSecret(host=host, port=port, dbname=dbname, **text_values)
 
 
 def load_database_secret(reader: SecretReader, secret_arn: str) -> DatabaseSecret:
@@ -143,7 +154,34 @@ def resolve_database_name(secret: DatabaseSecret, fallback_db_name: str | None) 
     )
 
 
-def build_database_url(secret: DatabaseSecret, fallback_db_name: str | None = None) -> URL:
+def resolve_database_host(secret: DatabaseSecret, fallback_db_host: str | None) -> str:
+    if secret.host is not None:
+        return secret.host
+    if fallback_db_host is not None:
+        candidate = fallback_db_host.strip()
+        if candidate:
+            return candidate
+    raise DatabaseConfigurationError(
+        "database host is not configured: the secret has no host and no fallback was provided"
+    )
+
+
+def resolve_database_port(secret: DatabaseSecret, fallback_db_port: int | None) -> int:
+    if secret.port is not None:
+        return secret.port
+    if fallback_db_port is not None and 1 <= fallback_db_port <= 65535:
+        return fallback_db_port
+    raise DatabaseConfigurationError(
+        "database port is not configured: the secret has no port and no fallback was provided"
+    )
+
+
+def build_database_url(
+    secret: DatabaseSecret,
+    fallback_db_name: str | None = None,
+    fallback_db_host: str | None = None,
+    fallback_db_port: int | None = None,
+) -> URL:
     """Build a structured URL so credentials are encoded safely by SQLAlchemy.
 
     Backward compatible: an existing caller passing a secret that carries a
@@ -152,11 +190,13 @@ def build_database_url(secret: DatabaseSecret, fallback_db_name: str | None = No
     """
 
     database = resolve_database_name(secret, fallback_db_name)
+    host = resolve_database_host(secret, fallback_db_host)
+    port = resolve_database_port(secret, fallback_db_port)
     return URL.create(
         drivername="postgresql+psycopg",
         username=secret.username,
         password=secret.password,
-        host=secret.host,
-        port=secret.port,
+        host=host,
+        port=port,
         database=database,
     )
