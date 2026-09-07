@@ -61,7 +61,7 @@ data "aws_iam_policy_document" "waf_logs_kms" {
       identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/${var.name_prefix}-terraform-exec-role"]
     }
 
-    actions = ["kms:Describe*"]
+    actions   = ["kms:Describe*"]
     resources = ["*"]
 
     condition {
