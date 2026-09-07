@@ -177,3 +177,17 @@ def test_codebuild_can_assume_terraform_exec():
     assert "aws_iam_role.terraform_exec.arn" in block, (
         "codebuild-role が terraform-exec-role の ARN を assume 対象にしていない"
     )
+
+
+def test_terraform_exec_can_read_versioned_artifacts_after_assume():
+    """apply stage が assume 後に plan artifact / Lambda package を照合できること。"""
+    code = read_tf("iam.tf")
+    assert 'sid       = "TerraformArtifactBucketList"' in code
+    assert 'sid    = "TerraformArtifactObjectRead"' in code
+    assert '"s3:GetObject"' in code
+    assert '"s3:GetObjectVersion"' in code
+    assert '"${aws_s3_bucket.artifacts.arn}/*"' in code
+    assert 'sid    = "TerraformArtifactKmsDecrypt"' in code
+    assert '"kms:Decrypt"' in code
+    assert '"kms:DescribeKey"' in code
+    assert "aws_kms_key.artifacts.arn" in code

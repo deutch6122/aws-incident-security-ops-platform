@@ -101,6 +101,33 @@ data "aws_iam_policy_document" "terraform_exec_state_network" {
     ]
   }
 
+  statement {
+    sid       = "TerraformArtifactBucketList"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.artifacts.arn]
+  }
+
+  statement {
+    sid    = "TerraformArtifactObjectRead"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+    ]
+    resources = ["${aws_s3_bucket.artifacts.arn}/*"]
+  }
+
+  statement {
+    sid    = "TerraformArtifactKmsDecrypt"
+    effect = "Allow"
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+    ]
+    resources = [aws_kms_key.artifacts.arn]
+  }
+
   # --- ネットワーク（VPC/EC2 系）--------------------------------------------
   # VPC/Subnet/SG/NAT/IGW/Route/VPC Endpoint 等。多くが作成時 ARN 不定のため
   # サービス単位のアクション制約とする（TODO: タグ Condition 追加）。
