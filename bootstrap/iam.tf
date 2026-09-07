@@ -627,6 +627,40 @@ data "aws_iam_policy_document" "terraform_exec_kms" {
   }
 
   statement {
+    sid       = "KMSTagNewAuroraMasterSecretKey"
+    effect    = "Allow"
+    actions   = ["kms:TagResource"]
+    resources = ["arn:${data.aws_partition.current.partition}:kms:${var.aws_region}:${local.account_id}:key/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = [var.project]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Env"
+      values   = [var.env]
+    }
+
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "aws:TagKeys"
+      values = [
+        "Component",
+        "Env",
+        "ManagedBy",
+        "Name",
+        "Platform",
+        "Project",
+        "Role",
+        "Stack",
+      ]
+    }
+  }
+
+  statement {
     sid    = "KMSManageAuroraMasterSecretKey"
     effect = "Allow"
     actions = [
@@ -770,7 +804,10 @@ data "aws_iam_policy_document" "terraform_exec_iam" {
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
-      values   = ["eks-fargate-pods.amazonaws.com"]
+      values = [
+        "eks.amazonaws.com",
+        "eks-fargate-pods.amazonaws.com",
+      ]
     }
   }
 

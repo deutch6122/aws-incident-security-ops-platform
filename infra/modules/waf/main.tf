@@ -44,9 +44,12 @@ data "aws_iam_policy_document" "waf_logs_kms" {
     resources = ["*"]
 
     condition {
-      test     = "ArnEquals"
+      test     = "ArnLike"
       variable = "kms:EncryptionContext:aws:logs:arn"
-      values   = ["arn:${data.aws_partition.current.partition}:logs:us-east-1:${data.aws_caller_identity.current.account_id}:log-group:${local.log_group_name}"]
+      values = [
+        "arn:${data.aws_partition.current.partition}:logs:us-east-1:${data.aws_caller_identity.current.account_id}:log-group:${local.log_group_name}",
+        "arn:${data.aws_partition.current.partition}:logs:us-east-1:${data.aws_caller_identity.current.account_id}:log-group:${local.log_group_name}:*",
+      ]
     }
 
     condition {

@@ -288,6 +288,8 @@ resource "aws_eks_access_entry" "operator" {
   principal_arn = var.eks_operator_principal_arn
   type          = "STANDARD"
   tags          = local.common_tags
+
+  depends_on = [module.eks]
 }
 
 resource "aws_eks_access_policy_association" "operator" {

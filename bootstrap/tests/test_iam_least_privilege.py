@@ -241,7 +241,7 @@ def test_service_passrole_permissions_are_exactly_scoped():
         "IAMPassRoleEKSCluster": ("-eks-cluster-role", "eks.amazonaws.com"),
         "IAMPassRoleEKSFargate": (
             "-eks-fargate-exec-role",
-            "eks-fargate-pods.amazonaws.com",
+            "eks.amazonaws.com",
         ),
         "IAMPassRoleLambdaPortal": ("-lambda-portal-role", "lambda.amazonaws.com"),
         "IAMPassRoleVpcFlowLogs": (
@@ -275,7 +275,11 @@ def test_waf_kms_management_is_limited_to_us_east_1_account_resources():
     assert "kms:us-east-1:${local.account_id}:key/*" in block
     assert "kms:us-east-1:${local.account_id}:alias/${local.name_prefix}-waf-logs" in block
     assert "KMSManageAuroraMasterSecretKey" in code
+    assert "KMSTagNewAuroraMasterSecretKey" in code
     assert "kms:${var.aws_region}:${local.account_id}:key/*" in code
+    assert "aws:RequestTag/Project" in code
+    assert "aws:RequestTag/Env" in code
+    assert "aws:TagKeys" in code
     assert "aws:ResourceTag/Project" in code
     assert "aws:ResourceTag/Env" in code
     assert "kms:${var.aws_region}:${local.account_id}:alias/${local.name_prefix}-aurora-master-secret" in code
