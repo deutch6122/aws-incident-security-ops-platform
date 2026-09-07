@@ -37,9 +37,10 @@ pipeline_backend_key = "environments/dev/terraform.tfstate"
 
 # Aurora PostgreSQL Serverless v2: all values here are non-secret. RDS generates
 # the master credential in Secrets Manager; never add a password to this file.
-# Confirm the engine version and Serverless v2 support in ap-northeast-1 before apply.
+# null lets RDS select its current regional default. Pin a version only after
+# confirming Aurora Serverless v2 support in ap-northeast-1 before apply.
 aurora_database_name                   = "opsplatform"
-aurora_engine_version                  = "16.6"
+aurora_engine_version                  = null
 aurora_master_username                 = "ops_admin"
 aurora_master_user_secret_kms_key_id   = null
 aurora_min_capacity                    = 0.5

@@ -16,6 +16,7 @@ README = (MODULE_DIR / "README.md").read_text(encoding="utf-8")
 DEV_MAIN = (DEV_ROOT / "main.tf").read_text(encoding="utf-8")
 DEV_OUTPUTS = (DEV_ROOT / "outputs.tf").read_text(encoding="utf-8")
 DEV_TFVARS = (DEV_ROOT / "terraform.tfvars.example").read_text(encoding="utf-8")
+DEV_VARIABLES = (DEV_ROOT / "variables.tf").read_text(encoding="utf-8")
 
 
 def test_serverless_v2_cluster_has_one_private_writer_and_no_reader() -> None:
@@ -32,6 +33,21 @@ def test_serverless_v2_cluster_has_one_private_writer_and_no_reader() -> None:
     assert "for_each" not in MAIN.split('resource "aws_rds_cluster_instance" "writer"', 1)[1]
     assert 'default     = 0.5' in VARIABLES
     assert 'default     = 2' in VARIABLES
+
+
+def test_engine_version_defaults_to_regional_rds_selection() -> None:
+    """Do not pin an Aurora minor version that may be absent in the target Region."""
+    module_block = VARIABLES.split('variable "engine_version"', 1)[1].split(
+        'variable "master_username"', 1
+    )[0]
+    dev_block = DEV_VARIABLES.split('variable "aurora_engine_version"', 1)[1].split(
+        'variable "aurora_master_username"', 1
+    )[0]
+    assert "default     = null" in module_block
+    assert "var.engine_version == null ||" in module_block
+    assert "default     = null" in dev_block
+    assert "var.aurora_engine_version == null ||" in dev_block
+    assert "aurora_engine_version                  = null" in DEV_TFVARS
 
 
 def test_isolated_subnet_group_and_database_security_group_are_exclusive() -> None:

@@ -24,7 +24,7 @@ When `master_user_secret_kms_key_id` is null, the RDS-managed secret uses the AW
 
 | Input | Dev default | Notes |
 | --- | --- | --- |
-| `engine_version` | `16.6` | Module validation accepts Aurora PostgreSQL major 14–16. Before apply, verify the selected minor version supports Aurora Serverless v2 in the target Region. |
+| `engine_version` | `null` | RDS selects the current regional default. Pin a 14–16 minor version only after verifying Aurora Serverless v2 support in the target Region. |
 | `min_capacity` / `max_capacity` | `0.5` / `2` | Requirement 24.3 cost-oriented MVP capacity. |
 | `backup_retention_period` | `1` day | Production needs a reviewed retention, recovery objective, and snapshot lifecycle. |
 | `enabled_cloudwatch_logs_exports` | `postgresql` | Useful for dev diagnostics but incurs CloudWatch Logs ingestion/storage cost. |
