@@ -95,6 +95,8 @@ def test_plan_buildspec_reads_two_phase_deployment_inputs_from_ssm():
         content = _read(name)
         assert "SSM_APPLICATION_IMAGE_TAG" in content
         assert "SSM_ECS_DESIRED_COUNT" in content
+        assert "SSM_ALB_INGRESS_CIDRS" in content
+        assert "TF_VAR_network_allowed_alb_ingress_cidrs" in content
         assert "TF_VAR_application_image_tag" in content
         assert "TF_VAR_ecs_desired_count" in content
         assert "TF_VAR_cognito_callback_urls" in content

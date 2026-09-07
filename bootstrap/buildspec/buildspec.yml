@@ -81,6 +81,7 @@ phases:
             test -n "$PACKAGE_VERSION" && test "$PACKAGE_VERSION" != "None"
             export TF_VAR_lambda_package_s3_bucket="$ARTIFACT_BUCKET" TF_VAR_lambda_package_s3_key="$PACKAGE_KEY" TF_VAR_lambda_package_s3_object_version="$PACKAGE_VERSION" TF_VAR_lambda_source_code_hash="$PACKAGE_HASH"
             export TF_VAR_alb_certificate_arn="$(aws ssm get-parameter --name "$SSM_ALB_CERTIFICATE_ARN" --query Parameter.Value --output text)"
+            export TF_VAR_network_allowed_alb_ingress_cidrs="$(aws ssm get-parameter --name "$SSM_ALB_INGRESS_CIDRS" --query Parameter.Value --output text)"
             export TF_VAR_eks_operator_principal_arn="$(aws ssm get-parameter --name "$SSM_EKS_OPERATOR_PRINCIPAL_ARN" --query Parameter.Value --output text)"
             export TF_VAR_migration_launcher_trusted_principal_arns="$(aws ssm get-parameter --name "$SSM_MIGRATION_LAUNCHER_PRINCIPALS" --query Parameter.Value --output text)"
             export TF_VAR_eks_public_access_cidrs="$(aws ssm get-parameter --name "$SSM_EKS_PUBLIC_ACCESS_CIDRS" --query Parameter.Value --output text)"

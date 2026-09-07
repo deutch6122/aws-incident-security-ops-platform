@@ -7,7 +7,8 @@
 ## 本書の使い方
 
 - 実行順は「手順1」から「手順14」まで固定する。途中を飛ばさない。
-- 対応する値は aws-resource-parameter-sheet.xlsx の各シートで確認する。Sheet の Build手順列の番号は、本書の手順番号と一致する。
+- 最初に aws-resource-parameter-sheet.xlsx の先頭シート「構築前の必須確認」12項目だけを確認する。01〜08シートは参照台帳であり、全行レビューや全既定値の転記は不要である。
+- 既定値を変更する場合、またはplanに想定外の差分が出た場合だけ、01〜08シートの該当行を参照する。Sheet の Build手順列の番号は、本書の手順番号と一致する。
 - 実 ARN、12桁アカウント ID、実ドメイン、実メール、password/token/secret 値をリポジトリ・本書・実行ログへ転記しない。
 - Terraform apply は、承認済み binary plan を CodePipeline の Apply stage が実行する。本体インフラをローカルから継続 apply しない。
 - dry-run と plan が失敗した場合、後続操作へ進まない。修正後に同じ手順から再実行する。
@@ -25,11 +26,12 @@
 | ＜commit-sha＞ | デプロイ対象の完全 commit SHA | git rev-parse HEAD |
 | ＜domain＞ | Operator が所有・管理する DNS 名 | Parameter Sheet 03、DNS 管理台帳 |
 | ＜role-arn＞ | Operator 用 IAM role ARN | Parameter Sheet 02、組織 IAM 管理台帳 |
-| ＜approved-cidrs-json＞ | EKS API 許可 CIDR の JSON 配列 | Parameter Sheet 02、接続元管理台帳 |
+| ＜approved-alb-cidrs-json＞ | ALB HTTPS 許可 CIDR の JSON 配列 | Parameter Sheet 先頭シート、接続元管理台帳 |
+| ＜approved-eks-cidrs-json＞ | EKS API 許可 CIDR の JSON 配列 | Parameter Sheet 先頭シート、接続元管理台帳 |
 
 ## 手順1. 前提条件・認証・リージョン・予算確認
 
-Parameter Sheet 対応: 00_使い方・前提、06_コスト・保持期間。
+Parameter Sheet 対応: 00_使い方・前提の「構築前の必須確認」No.1、2。
 
 ### ファイル編集
 
@@ -88,7 +90,7 @@ aws configure get region
 
 ## 手順2. ACM・DNS・CodeStar Connection の事前入力
 
-Parameter Sheet 対応: 02_Terraform入力値、03_ファイル編集マップの Build手順 2。
+Parameter Sheet 対応: 00_使い方・前提の「構築前の必須確認」No.3〜5。詳細が必要な場合だけ02、03を参照する。
 
 ### ファイル編集 BP-02-E01
 
@@ -159,19 +161,43 @@ aws codestar-connections get-connection \
 
 DNS の public record は CloudFront domain 確定後に設定する。現時点では所有権と変更担当だけを確認し、未確定値を Terraform や frontend に埋め込まない。
 
-## 手順3. Parameter Sheet 完成・承認
+## 手順3. Parameter Sheet 必須項目の確認・承認
 
-Parameter Sheet 対応: 全9シート。特に黄色セル、02、03、05、06、07、08。
+Parameter Sheet 対応: 00_使い方・前提の「構築前の必須確認」12項目。01〜08は参照台帳であり、全行確認は不要である。
+
+### 必須確認項目
+
+| No. | いつ | 確認対象 | 実値の設定先 | 合格条件 |
+| --- | --- | --- | --- | --- |
+| 1 | 手順1 | AWSアカウント、実行role、リージョン | AWS profile/session、作業記録 | 検証用アカウント、root以外、ap-northeast-1 |
+| 2 | 手順1 | 予算アラート、停止判断者 | AWS Budgets、作業記録 | アラート有効、停止判断者が確定 |
+| 3 | 手順2/5 | ALB用ACM証明書 | SSM /ops-platform/dev/alb-certificate-arn | ap-northeast-1、対象domain、ISSUED |
+| 4 | 手順2 | CodeStar Connection | bootstrap/terraform.tfvars | GitHub接続がAVAILABLE |
+| 5 | 手順2 | source repository / branch | bootstrap/terraform.tfvars | owner/repositoryが正しく、branchはmain |
+| 6 | 手順5 | ALB HTTPS許可CIDR | SSM /ops-platform/dev/alb-ingress-cidrs | JSON配列、管理対象CIDR、0.0.0.0/0なし |
+| 7 | 手順5 | EKS API許可CIDR | SSM /ops-platform/dev/eks-public-access-cidrs | JSON配列、kubectl接続元、0.0.0.0/0なし |
+| 8 | 手順5 | EKS Operator role | SSM /ops-platform/dev/eks-operator-principal-arn | 承認済みIAM role ARN |
+| 9 | 手順5 | migration起動主体 | SSM /ops-platform/dev/migration-launcher-principal-arns | 承認済みIAM role ARNのJSON配列 |
+| 10 | 手順5 | 初回起動ゲート | SSMのecs-desired-count / monitoring-enable-sns-subscription | ecs=0、SNS=false |
+| 11 | 手順7前 | コスト・保持・destroy方針 | 作業記録。必要時のみ02、06、08 | NAT/Aurora/EKS/WAF等の継続課金とsnapshot責任者を承認 |
+| 12 | 手順7直前 | EKS versionのStandard Support | variables.tfの候補とAWS公式情報 | apply時点でStandard Support対象 |
+
+上記以外は次の扱いとする。
+
+- variables.tfに既定値があり変更しない項目: 転記不要。planで採用値だけ確認する。
+- Terraformが自動生成する名前、ID、ARN、bucket名、output: 事前入力不要。apply後に取得する。
+- 05_Deploy環境変数: deploy直前にTerraform outputから取得するため、手順3では入力しない。
+- 07_Category-C検証と08_destroy前確認: 該当手順で使用し、手順3で全行を完了させない。
 
 ### ファイル編集 BP-03-E01
 
 | 項目 | 内容 |
 | --- | --- |
-| 対象ファイル | docs/operation/aws-resource-parameter-sheet.xlsx |
-| block/key | 環境固有値への置換要否、値の取得元、Build手順、承認欄 |
-| placeholder例 | 実値ではなく ＜certificate-arn＞、＜role-arn＞、＜approved-cidrs-json＞ |
-| 正となる値の取得元 | variables.tf、Terraform outputs、SSM/Secrets Manager、組織台帳 |
-| 編集完了条件 | 必須行に空欄なし、実Secret/実メールなし、全行が本書の手順1〜14へ到達 |
+| 対象ファイル | docs/operation/aws-resource-parameter-sheet.xlsx の先頭シート |
+| block/key | 「構築前の必須確認」表の状態・記録列 |
+| placeholder例 | 実値ではなく「確認済み」「SSM登録済み」「terraform.tfvars設定済み」 |
+| 正となる値の取得元 | BP-01/02の結果、AWS/組織台帳、SSM登録結果 |
+| 編集完了条件 | 12項目がすべて「確認済み」。記録列にSecret、実メール、アクセスキーを書かない |
 
 ### コマンド操作 BP-03-C01
 
@@ -179,14 +205,14 @@ Parameter Sheet 対応: 全9シート。特に黄色セル、02、03、05、06�
 | --- | --- |
 | 目的 | Parameter Sheet の承認済み版を構築の入力基準に固定する |
 | 実行ディレクトリ | リポジトリルート |
-| 前提条件 | 9シートのレビュー完了 |
+| 前提条件 | 先頭シートの必須12項目のレビュー完了 |
 | 正確なコマンド | 下記 |
 | dry-run/plan確認 | 読み取り専用 |
 | 成功時の期待結果 | xlsx が存在し、Git の対象差分として認識される |
-| 失敗時停止条件 | ファイル欠落、開けない、必須値未承認 |
+| 失敗時停止条件 | ファイル欠落、開けない、必須12項目のいずれかが未確認 |
 | 確認ログ/出力 | ファイルハッシュと承認記録 |
 | rollback方法 | 変更前版へ戻す。承認前版を構築に使わない |
-| 次へ進める条件 | Platform/Security/Cost の担当者が該当行を承認 |
+| 次へ進める条件 | 必須12項目が確認済みで、必要な実値がterraform.tfvarsまたはSSMへ供給可能 |
 
 ~~~bash
 test -f docs/operation/aws-resource-parameter-sheet.xlsx
@@ -289,11 +315,13 @@ test -n "$STATE_BUCKET" -a -n "$ARTIFACT_BUCKET" -a -n "$PIPELINE_NAME" -a -n "$
 aws ssm put-parameter --region ap-northeast-1 --type String \
   --name /ops-platform/dev/alb-certificate-arn --value '＜certificate-arn＞'
 aws ssm put-parameter --region ap-northeast-1 --type String \
+  --name /ops-platform/dev/alb-ingress-cidrs --value '＜approved-alb-cidrs-json＞'
+aws ssm put-parameter --region ap-northeast-1 --type String \
   --name /ops-platform/dev/eks-operator-principal-arn --value '＜role-arn＞'
 aws ssm put-parameter --region ap-northeast-1 --type String \
   --name /ops-platform/dev/migration-launcher-principal-arns --value '[\"＜role-arn＞\"]'
 aws ssm put-parameter --region ap-northeast-1 --type String \
-  --name /ops-platform/dev/eks-public-access-cidrs --value '＜approved-cidrs-json＞'
+  --name /ops-platform/dev/eks-public-access-cidrs --value '＜approved-eks-cidrs-json＞'
 aws ssm put-parameter --region ap-northeast-1 --type String \
   --name /ops-platform/dev/application-image-tag --value "$COMMIT_SHA"
 aws ssm put-parameter --region ap-northeast-1 --type String \

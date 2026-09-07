@@ -10,7 +10,7 @@
 
 対象は **dev 環境の MVP** です。リージョンは `ap-northeast-1`、命名規則は `ops-platform-dev-<resource>`。
 
-実構築時は、先に [AWSリソース・パラメータ値シート](docs/operation/aws-resource-parameter-sheet.xlsx) を完成させ、[詳細AWS構築手順書](docs/operation/aws-build-procedure.md) の手順1〜14を順番どおり実施してください。本READMEは概要であり、実行時の正はこの2成果物です。
+実構築時は、まず [AWSリソース・パラメータ値シート](docs/operation/aws-resource-parameter-sheet.xlsx) の先頭シートにある「構築前の必須確認」12項目だけを確認し、[詳細AWS構築手順書](docs/operation/aws-build-procedure.md) の手順1〜14を順番どおり実施してください。その他のシートは、既定値の変更やplan差分の調査に使う参照台帳です。本READMEは概要であり、実行時の正はこの2成果物です。
 
 ---
 

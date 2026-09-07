@@ -85,6 +85,12 @@ variable "pipeline_alb_certificate_arn_parameter_name" {
   default = "/ops-platform/dev/alb-certificate-arn"
 }
 
+variable "pipeline_alb_ingress_cidrs_parameter_name" {
+  description = "SSM parameter containing the approved JSON array of CIDRs allowed to reach the ALB."
+  type        = string
+  default     = "/ops-platform/dev/alb-ingress-cidrs"
+}
+
 variable "pipeline_eks_operator_principal_arn_parameter_name" {
   type    = string
   default = "/ops-platform/dev/eks-operator-principal-arn"
