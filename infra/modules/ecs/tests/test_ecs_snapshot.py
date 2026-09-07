@@ -43,6 +43,10 @@ def test_task_execution_and_task_roles_are_variable_references() -> None:
 def test_db_secret_arn_is_plain_environment_and_bearer_uses_secrets() -> None:
     assert 'name  = "BACKEND_DB_SECRET_ARN"' in MAIN
     assert "value = var.backend_db_secret_arn" in MAIN
+    assert 'name  = "BACKEND_DB_HOST"' in MAIN
+    assert "value = var.backend_db_host" in MAIN
+    assert 'name  = "BACKEND_DB_PORT"' in MAIN
+    assert "value = tostring(var.backend_db_port)" in MAIN
     assert 'name  = "BACKEND_DB_NAME"' in MAIN
     assert "value = var.backend_db_name" in MAIN
     assert "secrets = [" in MAIN
@@ -100,6 +104,10 @@ def test_migration_receives_db_arn_and_fallback_name_without_secret_payload() ->
     block = match.group(1)
     assert 'name  = "BACKEND_DB_SECRET_ARN"' in block
     assert "value = var.backend_db_secret_arn" in block
+    assert 'name  = "BACKEND_DB_HOST"' in block
+    assert "value = var.backend_db_host" in block
+    assert 'name  = "BACKEND_DB_PORT"' in block
+    assert "value = tostring(var.backend_db_port)" in block
     assert 'name  = "BACKEND_DB_NAME"' in block
     assert "value = var.backend_db_name" in block
     assert "secrets =" not in block

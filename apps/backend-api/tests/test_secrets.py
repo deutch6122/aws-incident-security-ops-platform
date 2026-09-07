@@ -55,6 +55,18 @@ def test_secret_is_strictly_validated_and_url_preserves_special_characters() -> 
     assert password not in str(url)
 
 
+def test_rds_managed_master_secret_uses_non_secret_endpoint_fallbacks() -> None:
+    password = secrets.token_urlsafe(24)
+    payload = json.dumps({"username": "service_user", "password": password})
+    secret = parse_database_secret(payload)
+    url = build_database_url(secret, "operations", "writer.cluster.internal", 5432)
+
+    assert url.host == "writer.cluster.internal"
+    assert url.port == 5432
+    assert url.database == "operations"
+    assert password not in str(url)
+
+
 def _payload_with_password(base: dict, password_value: str) -> str:
     return json.dumps({**base, "password": password_value})
 
@@ -114,9 +126,14 @@ def test_reader_errors_are_wrapped_without_leaking_original_message() -> None:
 
 
 def test_database_constructor_performs_no_secret_or_engine_access() -> None:
-    payload, _ = generated_payload()
+    payload = json.dumps({"username": "service_user", "password": secrets.token_urlsafe(24)})
     reader = FakeSecretReader(payload)
-    settings = Settings(db_secret_arn="configured-arn")
+    settings = Settings(
+        db_secret_arn="configured-arn",
+        db_host="writer.cluster.internal",
+        db_port=5432,
+        db_name="operations",
+    )
 
     with patch("app.db.session.create_engine") as create_engine:
         database = Database(settings, secret_reader=reader)

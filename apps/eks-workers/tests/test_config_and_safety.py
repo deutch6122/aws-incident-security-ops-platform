@@ -20,12 +20,18 @@ def test_settings_from_env_reads_non_secret_values() -> None:
     env = {
         "WORKER_AWS_REGION": "ap-northeast-1",
         "WORKER_DB_SECRET_ARN": "arn:aws:secretsmanager:ap-northeast-1:111122223333:secret:db-abc",
+        "WORKER_DB_HOST": "writer.cluster.internal",
+        "WORKER_DB_PORT": "5432",
+        "WORKER_DB_NAME": "opsplatform",
         "WORKER_SQS_QUEUE_URL": "https://sqs.ap-northeast-1.amazonaws.com/111122223333/q",
         "WORKER_MAX_MESSAGES": "5",
     }
     settings = WorkerSettings.from_env(env)
     assert settings.aws_region == "ap-northeast-1"
     assert settings.db_secret_arn == env["WORKER_DB_SECRET_ARN"]
+    assert settings.db_host == "writer.cluster.internal"
+    assert settings.db_port == 5432
+    assert settings.db_name == "opsplatform"
     assert settings.max_messages == 5
 
 
@@ -40,6 +46,8 @@ def test_missing_required_config_raises_without_leaking() -> None:
 def test_invalid_int_config_raises() -> None:
     with pytest.raises(WorkerConfigurationError):
         WorkerSettings.from_env({"WORKER_MAX_MESSAGES": "not-a-number"})
+    with pytest.raises(WorkerConfigurationError):
+        WorkerSettings.from_env({"WORKER_DB_PORT": "70000"})
 
 
 def test_portal_targets_require_all_three_environment_values() -> None:
@@ -104,3 +112,16 @@ def test_build_database_url_is_structured_and_hides_password() -> None:
     # SQLAlchemy URL renders the password as *** by default.
     assert "s3cr3t-pw" not in repr(url)
     assert url.drivername == "postgresql+psycopg"
+
+
+def test_rds_managed_master_secret_uses_worker_endpoint_fallbacks() -> None:
+    pytest.importorskip("sqlalchemy")
+    from workers.db.secrets import build_database_url, parse_database_secret
+
+    secret = parse_database_secret('{"username": "u", "password": "s3cr3t-pw"}')
+    url = build_database_url(secret, "opsplatform", "writer.cluster.internal", 5432)
+
+    assert url.host == "writer.cluster.internal"
+    assert url.port == 5432
+    assert url.database == "opsplatform"
+    assert "s3cr3t-pw" not in repr(url)

@@ -224,6 +224,9 @@ def _eks_dry_run_env(fake_bin: Path) -> dict[str, str]:
         "EKS_FINDING_WORKER_ROLE_ARN": "finding-role-reference",
         "EKS_CRONJOB_ROLE_ARN": "cronjob-role-reference",
         "WORKER_DB_SECRET_ARN": "database-secret-reference",
+        "WORKER_DB_HOST": "writer.cluster.internal",
+        "WORKER_DB_PORT": "5432",
+        "WORKER_DB_NAME": "opsplatform",
         "ALARM_QUEUE_URL": "https://example.invalid/alarm",
         "FINDING_QUEUE_URL": "https://example.invalid/finding",
         "WORKER_LOG_GROUP_NAME": "/ops-platform-dev/eks/workers",
@@ -256,6 +259,10 @@ def test_eks_manifests_reference_distinct_workload_images_and_queues() -> None:
     assert "${SUMMARY_CRONJOB_IMAGE}" in summary
     assert "${ALARM_QUEUE_URL}" in alarm and "${FINDING_QUEUE_URL}" not in alarm
     assert "${FINDING_QUEUE_URL}" in finding and "${ALARM_QUEUE_URL}" not in finding
+    for placeholder in ("${WORKER_DB_SECRET_ARN}", "${WORKER_DB_HOST}", "${WORKER_DB_PORT}", "${WORKER_DB_NAME}"):
+        assert placeholder in alarm
+        assert placeholder in finding
+        assert placeholder in summary
 
 
 def test_eks_default_dry_run_renders_but_executes_no_external_tool(tmp_path: Path) -> None:

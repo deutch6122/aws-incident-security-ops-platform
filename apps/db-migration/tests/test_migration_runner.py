@@ -36,6 +36,14 @@ def test_rds_shape_uses_backend_db_name_fallback() -> None:
     assert "test-only-value" not in repr(credentials)
 
 
+def test_rds_managed_master_secret_uses_endpoint_fallbacks() -> None:
+    payload = json.dumps({"username": "migration_user", "password": "test-only-value"})
+    credentials = RUNNER.parse_credentials(payload, "appdb", "writer.cluster.internal", "5432")
+    assert credentials.host == "writer.cluster.internal"
+    assert credentials.port == 5432
+    assert credentials.dbname == "appdb"
+
+
 def test_secret_dbname_takes_precedence() -> None:
     credentials = RUNNER.parse_credentials(_payload(dbname="secret_db"), "fallback_db")
     assert credentials.dbname == "secret_db"

@@ -40,11 +40,13 @@ Python/FastAPIによるProduct_A Backend APIです。共通HTTP基盤、Bearer�
 | --- | --- |
 | `BACKEND_AWS_REGION` | Secrets Manager clientのregion |
 | `BACKEND_DB_SECRET_ARN` | DB secretのARN（Secret値ではない） |
+| `BACKEND_DB_HOST` | DB Secretにhostが無い場合のAurora writer endpoint |
+| `BACKEND_DB_PORT` | DB Secretにportが無い場合のAurora listener port |
 | `BACKEND_DB_NAME` | DB Secretに非空のdbnameが無い場合のフォールバックDB名 |
 | `BACKEND_INTERNAL_BEARER_TOKEN` | Product_A MVPの内部Bearer credential |
 | `BACKEND_APP_NAME` | 任意のOpenAPI title |
 
-Secret JSONで必須のキー名は `username`、`password`、`host`、`port` です。`dbname` はoptionalです。DB名の解決順は「Secretの非空dbname → `BACKEND_DB_NAME` → 安全な設定エラー」です。Secret payload、password、完全なDB URLはログ・例外へ出しません。SQLAlchemy `URL.create`で特殊文字を安全に扱います。
+Secret JSONで必須のキー名は `username`、`password` です。RDS managed master user secretが `host` / `port` / `dbname` を含まない場合は、非機微の `BACKEND_DB_HOST` / `BACKEND_DB_PORT` / `BACKEND_DB_NAME` を使います。Secret payload、password、完全なDB URLはログ・例外へ出しません。SQLAlchemy `URL.create`で特殊文字を安全に扱います。
 
 認証tokenが未設定の場合、保護routeはfail-openせず401を返します。ローカル利用時もtokenは安全な設定経路から注入し、shell history、`.env`、README、テストfixtureへ固定値を書かないでください。
 

@@ -4,10 +4,10 @@ Feature: dev-full-stack-wiring, Property 1
 Validates: Requirements 3.4, 3.5, 3.6
 
 Property 1 asserts that, for any RDS-managed-style secret payload that carries
-username/password/host/port but omits dbname, the resolved database name always
-equals the non-empty BACKEND_DB_NAME fallback value. The tests also confirm the
-secret password value, raw payload, and DB URL never leak into exceptions,
-str/repr output, or the resolved value.
+username/password and omits dbname, the resolved database name always equals
+the non-empty BACKEND_DB_NAME fallback value. The tests also confirm the secret
+password value, raw payload, and DB URL never leak into exceptions, str/repr
+output, or the resolved value.
 """
 
 import json
@@ -45,9 +45,9 @@ _host = st.text(
 _port = st.integers(min_value=1, max_value=65535)
 
 
-def _rds_managed_payload_without_dbname(username: str, password: str, host: str, port: int) -> str:
-    # RDS-managed rotation secret shape: username/password/host/port, no dbname.
-    return json.dumps({"username": username, "password": password, "host": host, "port": port})
+def _rds_managed_payload_without_dbname(username: str, password: str) -> str:
+    # RDS-managed master-user secret shape observed in AWS: username/password only.
+    return json.dumps({"username": username, "password": password})
 
 
 # Feature: dev-full-stack-wiring, Property 1
@@ -66,7 +66,7 @@ def test_property_1_dbname_omitted_resolves_to_fallback(
     # A distinctive, high-entropy password value so the leakage assertions below
     # cannot pass by accident (e.g. a 1-char password being a substring of port).
     password = "PW-" + secrets.token_urlsafe(24) + f"-{password_seed}"
-    payload = _rds_managed_payload_without_dbname(username, password, host, port)
+    payload = _rds_managed_payload_without_dbname(username, password)
     secret = parse_database_secret(payload)
     # dbname omitted -> normalized to None.
     assert secret.dbname is None
@@ -74,8 +74,10 @@ def test_property_1_dbname_omitted_resolves_to_fallback(
     resolved = resolve_database_name(secret, fallback)
     assert resolved == fallback
 
-    url = build_database_url(secret, fallback)
+    url = build_database_url(secret, fallback, host, port)
     assert url.database == fallback
+    assert url.host == host
+    assert url.port == port
 
     # The password value, raw payload, and resolved URL must not leak into the
     # str/repr of the secret dataclass.
@@ -131,17 +133,17 @@ def test_both_missing_fails_safely(blank_fallback: str | None) -> None:
 
 
 def test_rds_managed_payload_parses_successfully() -> None:
-    payload = _rds_managed_payload_without_dbname("svc", secrets.token_urlsafe(24), "db.internal", 5432)
+    payload = _rds_managed_payload_without_dbname("svc", secrets.token_urlsafe(24))
     secret = parse_database_secret(payload)
     assert secret.username == "svc"
-    assert secret.host == "db.internal"
-    assert secret.port == 5432
+    assert secret.host is None
+    assert secret.port is None
     assert secret.dbname is None
 
 
 def test_generated_url_database_is_resolved_name() -> None:
     secret = _base_secret(None)
-    url = build_database_url(secret, "resolved_name")
+    url = build_database_url(secret, "resolved_name", "fallback.internal", 5432)
     assert url.database == "resolved_name"
 
 

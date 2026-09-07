@@ -6,6 +6,6 @@ Dedicated one-off runner for Product_A Aurora PostgreSQL migrations. Build it on
 docker build --platform linux/amd64 -f apps/db-migration/Dockerfile -t <migration-image> .
 ```
 
-The runner reads `BACKEND_DB_SECRET_ARN` and fetches the secret at runtime through the migration task role. If the RDS-managed secret omits `dbname`, `BACKEND_DB_NAME` is required. It applies sorted forward files from `/opt/migrations` and never applies `*.down.sql`.
+The runner reads `BACKEND_DB_SECRET_ARN` and fetches the secret at runtime through the migration task role. RDS-managed master user secrets may contain only `username` and `password`; in that case `BACKEND_DB_HOST`, `BACKEND_DB_PORT`, and `BACKEND_DB_NAME` provide the non-secret connection settings. It applies sorted forward files from `/opt/migrations` and never applies `*.down.sql`.
 
 The image is separate from Backend_API. Do not copy migration SQL into the Backend runtime image. Actual image build, push, ECS run-task, and Aurora access are Category C operations and are not performed by the local test suite.

@@ -36,6 +36,12 @@ spec:
               value: ap-northeast-1
             - name: WORKER_DB_SECRET_ARN
               value: ${WORKER_DB_SECRET_ARN}
+            - name: WORKER_DB_HOST
+              value: ${WORKER_DB_HOST}
+            - name: WORKER_DB_PORT
+              value: ${WORKER_DB_PORT}
+            - name: WORKER_DB_NAME
+              value: ${WORKER_DB_NAME}
             - name: WORKER_SQS_QUEUE_URL
               value: ${FINDING_QUEUE_URL}
           securityContext:

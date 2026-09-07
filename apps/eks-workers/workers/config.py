@@ -28,6 +28,9 @@ class WorkerSettings:
 
     aws_region: str = "ap-northeast-1"
     db_secret_arn: str | None = None
+    db_host: str | None = None
+    db_port: int | None = None
+    db_name: str | None = None
     sqs_queue_url: str | None = None
     max_messages: int = 10
     wait_time_seconds: int = 20
@@ -48,9 +51,16 @@ class WorkerSettings:
             except ValueError as exc:
                 raise WorkerConfigurationError(f"{name} must be an integer") from exc
 
+        db_port = _int("WORKER_DB_PORT", 5432) if _clean(env.get("WORKER_DB_PORT")) is not None else None
+        if db_port is not None and not 1 <= db_port <= 65535:
+            raise WorkerConfigurationError("WORKER_DB_PORT must be from 1 to 65535")
+
         return cls(
             aws_region=_clean(env.get("WORKER_AWS_REGION")) or "ap-northeast-1",
             db_secret_arn=_clean(env.get("WORKER_DB_SECRET_ARN")),
+            db_host=_clean(env.get("WORKER_DB_HOST")),
+            db_port=db_port,
+            db_name=_clean(env.get("WORKER_DB_NAME")),
             sqs_queue_url=_clean(env.get("WORKER_SQS_QUEUE_URL")),
             max_messages=_int("WORKER_MAX_MESSAGES", 10),
             wait_time_seconds=_int("WORKER_WAIT_TIME_SECONDS", 20),

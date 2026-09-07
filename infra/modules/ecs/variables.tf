@@ -141,6 +141,26 @@ variable "backend_db_name" {
   }
 }
 
+variable "backend_db_host" {
+  description = "Aurora writer endpoint supplied as non-secret runtime configuration when the RDS-managed secret omits host."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.backend_db_host)) > 0
+    error_message = "backend_db_host must be non-empty."
+  }
+}
+
+variable "backend_db_port" {
+  description = "Aurora listener port supplied as non-secret runtime configuration when the RDS-managed secret omits port."
+  type        = number
+
+  validation {
+    condition     = var.backend_db_port >= 1 && var.backend_db_port <= 65535 && floor(var.backend_db_port) == var.backend_db_port
+    error_message = "backend_db_port must be an integer from 1 to 65535."
+  }
+}
+
 variable "backend_bearer_secret_arn" {
   description = "Secrets Manager ARN whose value ECS injects as BACKEND_INTERNAL_BEARER_TOKEN."
   type        = string
