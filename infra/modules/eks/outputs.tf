@@ -13,6 +13,11 @@ output "cluster_endpoint" {
   value       = aws_eks_cluster.this.endpoint
 }
 
+output "cluster_security_group_id" {
+  description = "EKS-managed cluster security group ID. Fargate pods use this security group unless a SecurityGroupPolicy overrides it."
+  value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
+}
+
 output "cluster_oidc_issuer_url" {
   description = "OIDC issuer URL used to configure IRSA ServiceAccount trust."
   value       = aws_eks_cluster.this.identity[0].oidc[0].issuer

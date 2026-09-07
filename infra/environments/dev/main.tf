@@ -306,6 +306,22 @@ resource "aws_eks_access_policy_association" "operator" {
   }
 }
 
+# EKS Fargate pods use the EKS-managed cluster security group unless Security
+# Groups for Pods is explicitly configured. The network module's db_from_eks
+# rule permits the Terraform-created EKS SG, while this root-owned glue rule
+# permits the actual Fargate pod source SG to reach Aurora/PostgreSQL.
+resource "aws_vpc_security_group_ingress_rule" "db_from_eks_cluster" {
+  security_group_id            = module.network.security_group_ids.db
+  referenced_security_group_id = module.eks.cluster_security_group_id
+  from_port                    = 5432
+  ip_protocol                  = "tcp"
+  to_port                      = 5432
+
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-db-from-eks-cluster"
+  })
+}
+
 module "waf" {
   source = "../../modules/waf"
 

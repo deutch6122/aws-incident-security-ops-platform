@@ -28,6 +28,15 @@ def test_dev_root_wires_modules_but_owns_no_pipeline_or_build_resource() -> None
     assert 'resource "aws_codebuild_project"' not in dev_terraform
 
 
+def test_dev_root_allows_eks_fargate_cluster_sg_to_reach_db() -> None:
+    main = _read(DEV_ROOT / "main.tf")
+    assert 'resource "aws_vpc_security_group_ingress_rule" "db_from_eks_cluster"' in main
+    assert "security_group_id            = module.network.security_group_ids.db" in main
+    assert "referenced_security_group_id = module.eks.cluster_security_group_id" in main
+    assert "from_port                    = 5432" in main
+    assert "to_port                      = 5432" in main
+
+
 def test_bootstrap_owns_the_required_pipeline_order_and_manual_approval() -> None:
     cicd = _read(BOOTSTRAP / "cicd.tf")
     stage_names = re.findall(r'stage\s*\{\s*name\s*=\s*"([^"]+)"', cicd)

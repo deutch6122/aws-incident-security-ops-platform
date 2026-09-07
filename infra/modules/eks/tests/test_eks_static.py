@@ -166,6 +166,7 @@ def test_outputs_expose_expected_ids_without_secret() -> None:
         "cluster_name",
         "cluster_arn",
         "cluster_oidc_issuer_url",
+        "cluster_security_group_id",
         "oidc_provider_arn",
         "fargate_profile_arn",
         "alarm_worker_role_arn",
@@ -174,6 +175,7 @@ def test_outputs_expose_expected_ids_without_secret() -> None:
         "fargate_pod_execution_role_arn",
     ):
         assert f'output "{output}"' in OUTPUTS
+    assert "aws_eks_cluster.this.vpc_config[0].cluster_security_group_id" in OUTPUTS
 
 
 def test_fargate_logging_manifests_use_builtin_router_and_ordered_namespace() -> None:
