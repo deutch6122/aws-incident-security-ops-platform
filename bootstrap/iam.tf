@@ -640,7 +640,7 @@ data "aws_iam_policy_document" "terraform_exec_kms" {
 
     condition {
       test     = "StringEquals"
-      variable = "aws:RequestTag/Env"
+      variable = "aws:RequestTag/Environment"
       values   = [var.env]
     }
 
@@ -649,7 +649,7 @@ data "aws_iam_policy_document" "terraform_exec_kms" {
       variable = "aws:TagKeys"
       values = [
         "Component",
-        "Env",
+        "Environment",
         "ManagedBy",
         "Name",
         "Platform",
@@ -689,7 +689,7 @@ data "aws_iam_policy_document" "terraform_exec_kms" {
 
     condition {
       test     = "StringEquals"
-      variable = "aws:ResourceTag/Env"
+      variable = "aws:ResourceTag/Environment"
       values   = [var.env]
     }
   }
@@ -768,17 +768,17 @@ data "aws_iam_policy_document" "terraform_exec_iam" {
     sid       = "IAMReadEksFargateServiceLinkedRole"
     effect    = "Allow"
     actions   = ["iam:GetRole"]
-    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate*"]
   }
 
   statement {
     sid       = "IAMCreateEksFargateServiceLinkedRole"
     effect    = "Allow"
     actions   = ["iam:CreateServiceLinkedRole"]
-    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/eks-fargate.amazonaws.com/AWSServiceRoleForAmazonEKSForFargate*"]
 
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "iam:AWSServiceName"
       values   = ["eks-fargate.amazonaws.com"]
     }

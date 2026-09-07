@@ -287,10 +287,10 @@ def test_waf_kms_management_is_limited_to_us_east_1_account_resources():
     assert 'resources = ["*"]' in tag_block
     assert "kms:${var.aws_region}:${local.account_id}:key/*" in code
     assert "aws:RequestTag/Project" in code
-    assert "aws:RequestTag/Env" in code
+    assert "aws:RequestTag/Environment" in code
     assert "aws:TagKeys" in code
     assert "aws:ResourceTag/Project" in code
-    assert "aws:ResourceTag/Env" in code
+    assert "aws:ResourceTag/Environment" in code
     assert "kms:${var.aws_region}:${local.account_id}:alias/${local.name_prefix}-aurora-master-secret" in code
     assert "terraform_exec_kms.json" in code
 
@@ -323,3 +323,5 @@ def test_eks_service_linked_role_creation_is_condition_scoped():
         if service_name is not None:
             assert 'variable = "iam:AWSServiceName"' in block
             assert service_name in block
+        if "EksFargateServiceLinkedRole" in sid:
+            assert "AWSServiceRoleForAmazonEKSForFargate*" in block

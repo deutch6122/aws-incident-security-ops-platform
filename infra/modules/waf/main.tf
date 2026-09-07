@@ -38,8 +38,7 @@ data "aws_iam_policy_document" "waf_logs_kms" {
       "kms:Decrypt",
       "kms:ReEncrypt*",
       "kms:GenerateDataKey*",
-      "kms:DescribeKey",
-      "kms:CreateGrant",
+      "kms:Describe*",
     ]
     resources = ["*"]
 
@@ -51,6 +50,19 @@ data "aws_iam_policy_document" "waf_logs_kms" {
         "arn:${data.aws_partition.current.partition}:logs:us-east-1:${data.aws_caller_identity.current.account_id}:log-group:${local.log_group_name}:*",
       ]
     }
+  }
+
+  statement {
+    sid    = "AllowTerraformExecToAssociateLogGroup"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/${var.name_prefix}-terraform-exec-role"]
+    }
+
+    actions = ["kms:Describe*"]
+    resources = ["*"]
 
     condition {
       test     = "StringEquals"
