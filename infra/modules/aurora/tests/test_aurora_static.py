@@ -61,7 +61,10 @@ def test_isolated_subnet_group_and_database_security_group_are_exclusive() -> No
 
 def test_rds_manages_master_secret_without_plaintext_tfvars_or_outputs() -> None:
     assert "manage_master_user_password   = true" in MAIN
-    assert "master_user_secret_kms_key_id = var.master_user_secret_kms_key_id" in MAIN
+    assert "master_user_secret_kms_key_id = local.effective_master_user_secret_kms_key_id" in MAIN
+    assert 'resource "aws_kms_key" "master_user_secret"' in MAIN
+    assert 'resource "aws_kms_alias" "master_user_secret"' in MAIN
+    assert 'alias/${var.name_prefix}-aurora-master-secret' in MAIN
     assert not re.search(r"(?m)^\s*master_password\s*=", MAIN)
     assert "aws_secretsmanager_secret_version" not in MAIN
     assert "master_user_secret[0].secret_arn" in OUTPUTS

@@ -18,7 +18,7 @@ Aurora storage is managed redundantly across multiple Availability Zones by the 
 
 `master_user_secret_arn` and `app_database_secret_arn` expose only the generated secret ARN, never the value. A later ECS task role or EKS IRSA role must grant `secretsmanager:GetSecretValue` only for that ARN. This task does not create application IAM roles and does not modify the bootstrap `terraform-exec` role.
 
-When `master_user_secret_kms_key_id` is null, the RDS-managed secret uses the AWS-managed Secrets Manager KMS key. A customer-managed KMS key, scoped application key policy, secret rotation schedule, and recovery/rotation runbook are production-phase extensions. Rotation must be designed and tested with application connection refresh behavior before enabling it.
+When `master_user_secret_kms_key_id` is null, the module creates a customer-managed KMS key named `alias/<name_prefix>-aurora-master-secret` and passes it to the RDS-managed master secret. A pre-existing customer-managed KMS key can be supplied by ARN. Secret rotation schedule and recovery/rotation runbook are production-phase extensions. Rotation must be designed and tested with application connection refresh behavior before enabling it.
 
 ## Inputs and dev defaults
 

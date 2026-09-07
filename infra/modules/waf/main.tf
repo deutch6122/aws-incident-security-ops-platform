@@ -39,6 +39,7 @@ data "aws_iam_policy_document" "waf_logs_kms" {
       "kms:ReEncrypt*",
       "kms:GenerateDataKey*",
       "kms:DescribeKey",
+      "kms:CreateGrant",
     ]
     resources = ["*"]
 

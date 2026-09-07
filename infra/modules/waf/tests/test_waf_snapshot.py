@@ -35,6 +35,7 @@ def test_log_delivery_and_kms_policies_are_scoped() -> None:
     assert 'variable = "aws:SourceAccount"' in MAIN
     assert 'variable = "aws:SourceArn"' in MAIN
     assert 'identifiers = ["logs.us-east-1.amazonaws.com"]' in MAIN
+    assert '"kms:CreateGrant"' in MAIN
     assert 'variable = "kms:EncryptionContext:aws:logs:arn"' in MAIN
     assert 'variable = "kms:ViaService"' in MAIN
 

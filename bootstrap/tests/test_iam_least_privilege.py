@@ -227,6 +227,8 @@ def test_terraform_exec_has_provider_follow_up_permissions():
         "wafv2:PutLoggingConfiguration",
         "logs:PutResourcePolicy",
         "kms:TagResource",
+        "kms:CreateGrant",
+        "iam:CreateServiceLinkedRole",
     )
     for action in required_actions:
         assert f'"{action}"' in code, f"required Terraform execution action is missing: {action}"
@@ -272,4 +274,20 @@ def test_waf_kms_management_is_limited_to_us_east_1_account_resources():
     assert '"kms:TagResource"' in block
     assert "kms:us-east-1:${local.account_id}:key/*" in block
     assert "kms:us-east-1:${local.account_id}:alias/${local.name_prefix}-waf-logs" in block
+    assert "KMSManageAuroraMasterSecretKey" in code
+    assert "kms:${var.aws_region}:${local.account_id}:key/*" in code
+    assert "aws:ResourceTag/Project" in code
+    assert "aws:ResourceTag/Env" in code
+    assert "kms:${var.aws_region}:${local.account_id}:alias/${local.name_prefix}-aurora-master-secret" in code
     assert "terraform_exec_kms.json" in code
+
+
+def test_eks_service_linked_role_creation_is_condition_scoped():
+    code = read_tf("iam.tf")
+    match = re.search(r'sid\s*=\s*"IAMCreateEksServiceLinkedRole"(.*?)\n  \}', code, flags=re.DOTALL)
+    assert match, "EKS service-linked role creation statement is missing"
+    block = match.group(1)
+    assert '"iam:CreateServiceLinkedRole"' in block
+    assert "role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS" in block
+    assert 'variable = "iam:AWSServiceName"' in block
+    assert '"eks.amazonaws.com"' in block

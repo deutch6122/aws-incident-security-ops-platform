@@ -74,7 +74,7 @@ variable "master_username" {
 }
 
 variable "master_user_secret_kms_key_id" {
-  description = "Optional customer-managed KMS key ARN for the RDS-managed master secret. Null uses the AWS managed Secrets Manager key."
+  description = "Optional customer-managed KMS key ARN for the RDS-managed master secret. Null creates a module-owned customer-managed key for deterministic dev applies."
   type        = string
   default     = null
   nullable    = true

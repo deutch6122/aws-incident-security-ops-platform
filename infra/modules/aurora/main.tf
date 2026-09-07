@@ -1,3 +1,7 @@
+data "aws_partition" "current" {}
+data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
+
 locals {
   # A final snapshot is retained by default. Operators should provide a unique
   # reviewed identifier for repeated destroy/recreate workflows.
@@ -5,6 +9,69 @@ locals {
     var.final_snapshot_identifier,
     substr("${var.name_prefix}-aurora-final", 0, 63),
   )
+  effective_master_user_secret_kms_key_id = var.master_user_secret_kms_key_id != null ? var.master_user_secret_kms_key_id : aws_kms_key.master_user_secret[0].arn
+}
+
+data "aws_iam_policy_document" "master_user_secret_kms" {
+  count = var.master_user_secret_kms_key_id == null ? 1 : 0
+
+  statement {
+    sid    = "EnableAccountKeyAdministration"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AllowRdsAndSecretsManagerUse"
+    effect = "Allow"
+
+    principals {
+      type = "Service"
+      identifiers = [
+        "rds.amazonaws.com",
+        "secretsmanager.${data.aws_region.current.name}.amazonaws.com",
+      ]
+    }
+
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+      "kms:CreateGrant",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_kms_key" "master_user_secret" {
+  count = var.master_user_secret_kms_key_id == null ? 1 : 0
+
+  description             = "KMS key for ${var.name_prefix} Aurora managed master secret"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+  policy                  = data.aws_iam_policy_document.master_user_secret_kms[0].json
+
+  tags = merge(var.common_tags, {
+    Name      = "${var.name_prefix}-aurora-master-secret"
+    Component = "aurora"
+    Role      = "master-secret-encryption"
+  })
+}
+
+resource "aws_kms_alias" "master_user_secret" {
+  count = var.master_user_secret_kms_key_id == null ? 1 : 0
+
+  name          = "alias/${var.name_prefix}-aurora-master-secret"
+  target_key_id = aws_kms_key.master_user_secret[0].key_id
 }
 
 resource "aws_db_subnet_group" "this" {
@@ -29,7 +96,7 @@ resource "aws_rds_cluster" "this" {
   # RDS generates, stores, and returns the master credential through Secrets
   # Manager. Terraform never receives or writes a plaintext password.
   manage_master_user_password   = true
-  master_user_secret_kms_key_id = var.master_user_secret_kms_key_id
+  master_user_secret_kms_key_id = local.effective_master_user_secret_kms_key_id
 
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [var.db_security_group_id]

@@ -585,6 +585,7 @@ data "aws_iam_policy_document" "terraform_exec_edge_app" {
 }
 
 # CloudFront scope の WAF ログ暗号化キーは us-east-1 に作成される。
+# Aurora master secret 暗号化キーは dev Region に作成される。
 # KMS key ID は作成前に確定しないため account/Region までで制限し、
 # alias は本 Platform の確定名だけに限定する。
 data "aws_iam_policy_document" "terraform_exec_kms" {
@@ -623,6 +624,51 @@ data "aws_iam_policy_document" "terraform_exec_kms" {
       "arn:${data.aws_partition.current.partition}:kms:us-east-1:${local.account_id}:key/*",
       "arn:${data.aws_partition.current.partition}:kms:us-east-1:${local.account_id}:alias/${local.name_prefix}-waf-logs",
     ]
+  }
+
+  statement {
+    sid    = "KMSManageAuroraMasterSecretKey"
+    effect = "Allow"
+    actions = [
+      "kms:DescribeKey",
+      "kms:GetKeyPolicy",
+      "kms:PutKeyPolicy",
+      "kms:GetKeyRotationStatus",
+      "kms:EnableKeyRotation",
+      "kms:DisableKeyRotation",
+      "kms:CreateGrant",
+      "kms:ListResourceTags",
+      "kms:TagResource",
+      "kms:UntagResource",
+      "kms:EnableKey",
+      "kms:DisableKey",
+      "kms:ScheduleKeyDeletion",
+      "kms:CancelKeyDeletion",
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:kms:${var.aws_region}:${local.account_id}:key/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Project"
+      values   = [var.project]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Env"
+      values   = [var.env]
+    }
+  }
+
+  statement {
+    sid    = "KMSManageAuroraMasterSecretAlias"
+    effect = "Allow"
+    actions = [
+      "kms:CreateAlias",
+      "kms:UpdateAlias",
+      "kms:DeleteAlias",
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:kms:${var.aws_region}:${local.account_id}:alias/${local.name_prefix}-aurora-master-secret"]
   }
 }
 
@@ -669,6 +715,19 @@ data "aws_iam_policy_document" "terraform_exec_iam" {
       "arn:aws:iam::${local.account_id}:policy/${local.name_prefix}-*",
       "arn:aws:iam::${local.account_id}:oidc-provider/*",
     ]
+  }
+
+  statement {
+    sid       = "IAMCreateEksServiceLinkedRole"
+    effect    = "Allow"
+    actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["eks.amazonaws.com"]
+    }
   }
 
   statement {
