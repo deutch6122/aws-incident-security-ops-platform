@@ -123,6 +123,10 @@ resource "aws_codebuild_project" "terraform" {
       value = var.pipeline_alb_certificate_arn_parameter_name
     }
     environment_variable {
+      name  = "SSM_ALB_INGRESS_CIDRS"
+      value = var.pipeline_alb_ingress_cidrs_parameter_name
+    }
+    environment_variable {
       name  = "SSM_EKS_OPERATOR_PRINCIPAL_ARN"
       value = var.pipeline_eks_operator_principal_arn_parameter_name
     }

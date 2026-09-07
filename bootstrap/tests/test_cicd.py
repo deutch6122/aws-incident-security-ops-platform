@@ -55,6 +55,7 @@ def test_codebuild_receives_backend_artifact_and_ssm_parameter_names():
         "ARTIFACT_BUCKET",
         "ARTIFACT_KMS_KEY_ARN",
         "SSM_ALB_CERTIFICATE_ARN",
+        "SSM_ALB_INGRESS_CIDRS",
         "SSM_EKS_OPERATOR_PRINCIPAL_ARN",
         "SSM_MIGRATION_LAUNCHER_PRINCIPALS",
         "SSM_EKS_PUBLIC_ACCESS_CIDRS",
