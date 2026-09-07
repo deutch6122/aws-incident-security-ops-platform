@@ -245,6 +245,9 @@ def test_eks_script_uses_three_distinct_images_and_linux_amd64() -> None:
     assert "docker build --platform linux/amd64" in text
     assert "envsubst" in text
     assert "unresolved placeholder found" in text
+    assert "ensure_coredns_ready" in text
+    assert "deployment/coredns" in text
+    assert "k8s-app=kube-dns" in text
     assert text.index('"00-namespace.yaml"') < text.index('"40-fargate-logging.yaml"')
     assert text.index('"40-fargate-logging.yaml"') < text.index('"10-serviceaccounts.yaml"')
 
@@ -295,6 +298,7 @@ def test_eks_default_dry_run_renders_but_executes_no_external_tool(tmp_path: Pat
     assert not any(marker.exists() for marker in markers)
     assert "manifests rendered and validated" in result.stdout
     assert "--platform linux/amd64" in result.stdout
+    assert "deployment/coredns" in result.stdout
     assert "40-fargate-logging.yaml" in result.stdout
 
 

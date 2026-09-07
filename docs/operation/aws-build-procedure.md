@@ -638,14 +638,14 @@ export MIGRATION_LOG_STREAM="$(aws logs describe-log-streams \
   --query 'logStreams[0].logStreamName' \
   --output text)"
 
-aws logs get-log-events \
+aws logs describe-log-streams \
   --region "$AWS_REGION" \
   --log-group-name "$MIGRATION_LOG_GROUP" \
-  --log-stream-name "$MIGRATION_LOG_STREAM" \
-  --start-from-head \
-  --limit 500 \
-  --query 'events[].message' \
-  --output text
+  --order-by LastEventTime \
+  --descending \
+  --limit 5 \
+  --query 'logStreams[].logStreamName' \
+  --output table
 ~~~
 
 ## 手順10. ECS desired_count=1 の再plan・承認・apply
@@ -703,13 +703,13 @@ Parameter Sheet 対応: 03、04、05、07 の Build手順 11。
 
 | 項目 | 内容 |
 | --- | --- |
-| 目的 | EKS logging prerequisitesを先に適用し、その後3 workloadを配信する |
+| 目的 | CoreDNSがFargate上でReadyであることを確認し、EKS logging prerequisitesを先に適用し、その後3 workloadを配信する |
 | 実行ディレクトリ | リポジトリルート |
 | 前提条件 | EKS Standard Support再確認、5 image合格、Operator access確認、全env設定 |
 | 正確なコマンド | 下記。最初はdry-run、その出力承認後に--execute |
-| dry-run/plan確認 | render結果にplaceholderなし、適用順00→40→10→20→21→30 |
+| dry-run/plan確認 | render結果にplaceholderなし、CoreDNS確認、適用順00→40→10→20→21→30 |
 | 成功時の期待結果 | 3 workloadが300秒以内にRunning/Job complete、image pull成功 |
-| 失敗時停止条件 | auth can-i不一致、placeholder、ImagePullBackOff、logging ConfigMap欠落 |
+| 失敗時停止条件 | CoreDNS Pending継続、auth can-i不一致、placeholder、ImagePullBackOff、logging ConfigMap欠落 |
 | 確認ログ/出力 | rendered validation、rollout/job status、pod event、CloudWatch log stream |
 | rollback方法 | 直前tagで再配信、Deploymentはrollout undo、CronJob停止。logging前提はworkload停止後に戻す |
 | 次へ進める条件 | 3 workloadとCloudWatch logging、Operator権限が合格 |
@@ -748,6 +748,8 @@ scripts/deploy-eks.sh --tag "$IMAGE_TAG"
 # apps/eks-workers/k8s/21-security-finding-worker.yaml
 # apps/eks-workers/k8s/30-monthly-summary-cronjob.yaml
 scripts/deploy-eks.sh --tag "$IMAGE_TAG" --execute
+
+scripts/deploy-eks.sh は --execute 時に、最初に `kube-system` の CoreDNS を確認する。CoreDNS が Ready でない場合は `deployment/coredns` を再起動し、Fargate profile に再スケジュールされるまで待機する。CoreDNS が Pending のまま worker を起動すると、Pod 内で `sts.ap-northeast-1.amazonaws.com` を名前解決できず、IRSA の認証情報取得前に CrashLoopBackOff になる。
 
 kubectl get pods -n workers
 kubectl get cronjob -n workers

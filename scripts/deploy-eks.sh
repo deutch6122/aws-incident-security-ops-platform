@@ -192,6 +192,24 @@ run docker push "$FINDING_WORKER_IMAGE"
 run docker push "$SUMMARY_CRONJOB_IMAGE"
 run aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER"
 
+ensure_coredns_ready() {
+  if run kubectl rollout status deployment/coredns -n kube-system --timeout=30s; then
+    echo "[info] CoreDNS is already ready."
+  else
+    echo "[info] CoreDNS is not ready; restarting it so it can be scheduled on the kube-system Fargate profile."
+    run kubectl rollout restart deployment/coredns -n kube-system
+    run kubectl rollout status deployment/coredns -n kube-system --timeout=300s
+  fi
+
+  run kubectl get pods -n kube-system -l k8s-app=kube-dns
+}
+
+# In new all-Fargate clusters, CoreDNS can remain Pending if its pods were
+# created before the kube-system Fargate profile became active. Workers rely on
+# CoreDNS to resolve STS/SQS/Secrets Manager endpoints for IRSA and runtime AWS
+# calls, so verify or recycle CoreDNS before deploying application workloads.
+ensure_coredns_ready
+
 # Logging prerequisites must be applied before ServiceAccounts and workloads.
 apply_order=(
   "00-namespace.yaml"
