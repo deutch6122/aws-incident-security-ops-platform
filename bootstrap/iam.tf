@@ -67,7 +67,8 @@ resource "aws_iam_role" "terraform_exec" {
 # terraform-exec 用ポリシー（サービス単位でスコープ）
 # ---------------------------------------------------------------------------
 # 注意: NotAction や "*" 全許可は使わず、サービスごとにアクションを列挙する。
-data "aws_iam_policy_document" "terraform_exec" {
+# IAM managed policy は1本あたり 6,144 文字の上限があるため、権限を用途別に分割する。
+data "aws_iam_policy_document" "terraform_exec_state_network" {
 
   # --- state backend アクセス（remote state S3, 任意 DynamoDB lock）-----------
   statement {
@@ -159,6 +160,9 @@ data "aws_iam_policy_document" "terraform_exec" {
     ]
     resources = ["*"] # TODO: ALB ARN 確定後にタグ Condition で制限
   }
+}
+
+data "aws_iam_policy_document" "terraform_exec_compute_data" {
 
   # --- ECS ------------------------------------------------------------------
   statement {
@@ -342,6 +346,9 @@ data "aws_iam_policy_document" "terraform_exec" {
       "arn:aws:s3:::${local.name_prefix}-*",
     ]
   }
+}
+
+data "aws_iam_policy_document" "terraform_exec_edge_app" {
 
   # --- CloudFront -----------------------------------------------------------
   statement {
@@ -501,6 +508,9 @@ data "aws_iam_policy_document" "terraform_exec" {
     ]
     resources = ["*"]
   }
+}
+
+data "aws_iam_policy_document" "terraform_exec_iam" {
 
   # --- IAM（必要な範囲）------------------------------------------------------
   # Platform が作成するロール/ポリシー（命名 prefix）に限定。
@@ -565,20 +575,33 @@ data "aws_iam_policy_document" "terraform_exec" {
   }
 }
 
+locals {
+  terraform_exec_policy_documents = {
+    state_network = data.aws_iam_policy_document.terraform_exec_state_network.json
+    compute_data  = data.aws_iam_policy_document.terraform_exec_compute_data.json
+    edge_app      = data.aws_iam_policy_document.terraform_exec_edge_app.json
+    iam           = data.aws_iam_policy_document.terraform_exec_iam.json
+  }
+}
+
 resource "aws_iam_policy" "terraform_exec" {
-  name = "${local.name_prefix}-terraform-exec-policy"
+  for_each = local.terraform_exec_policy_documents
+
+  name = "${local.name_prefix}-terraform-exec-${each.key}-policy"
   # 最小権限方針: 管理者相当の権限や Action/Resource 全許可ワイルドカードは使用しない。
-  description = "Least-privilege(ish) policy for Terraform execution via CodeBuild (service-scoped, no full wildcard)."
-  policy      = data.aws_iam_policy_document.terraform_exec.json
+  description = "Least-privilege(ish) policy slice for Terraform execution via CodeBuild (${each.key})."
+  policy      = each.value
 
   tags = {
-    Name = "${local.name_prefix}-terraform-exec-policy"
+    Name = "${local.name_prefix}-terraform-exec-${each.key}-policy"
   }
 }
 
 resource "aws_iam_role_policy_attachment" "terraform_exec" {
+  for_each = aws_iam_policy.terraform_exec
+
   role       = aws_iam_role.terraform_exec.name
-  policy_arn = aws_iam_policy.terraform_exec.arn
+  policy_arn = each.value.arn
 }
 
 # ===========================================================================
