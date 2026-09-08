@@ -14,7 +14,7 @@ design.md の「Error Handling / 障害時の考慮 / コスト最適化（撤�
 | Aurora 一時不可 | 書込/参照失敗（503） | Serverless v2 復旧待ち。SDK リトライ |
 | CronJob 失敗 | 月次集計と A→B 連携が遅延 | `backoffLimit` 再試行、次回スケジュールで回復 |
 | CloudFront/Portal 障害 | 閲覧不可。Product_A 運用は継続 | 疎結合で Product_A に波及しない |
-| A→B 連携失敗 | Portal のレポート/ステータス更新が遅延 | 次回 CronJob で再反映（冪等） |
+| A→B 連携失敗 | Portal のレポート/ステータス更新が遅延 | 月次は次回CronJob、CRITICAL FindingはSQS再配送で再反映（いずれも冪等） |
 
 ## DLQ 運用方針
 
@@ -33,10 +33,13 @@ design.md の「Error Handling / 障害時の考慮 / コスト最適化（撤�
 
 ## Finding 発生時（Worker_Finding 取込）
 
-1. `security-finding-worker` が SQS の Finding 風イベントを取り込み、`findings` / `finding_triage` へ整合登録する（同一 `external_id` は冪等・重複しない）。
-2. Backend_API の `GET /findings` / `GET /findings/{id}` で登録内容・重大度・対応ステータスを確認。
-3. 対応ステータス変更は API 経由で行い、`audit_logs` に変更前後値が 1 件記録されることを確認（Property 6）。
-4. 判定結果が想定値域外・未取込の場合は当該メッセージの DLQ 有無を確認（下記）。
+1. `ops-platform-dev-securityhub-critical-rule` がSecurity Hubの`Security Hub Findings - Imported`イベントを監視し、CRITICALを含むイベントだけをfinding queueへ送る。Security Hubがアカウント/リージョンで有効であることが前提。
+2. `security-finding-worker` がnative Security Hubイベント（AWSの現行仕様では1イベント1 Finding）またはサンプルイベントを取り込み、Findingを`findings` / `finding_triage`へ整合登録する（同一`external_id`は冪等・重複しない）。パーサーは非空配列を安全に処理できるため、複数要素のfixtureにも対応する。
+3. 判定後のseverityが`critical`のFindingだけを、決定的な`status_id`でProduct_Bの`public_status_items`へupsertする。高・中・低はPortalへ書き込まない。
+4. CloudFrontのステータス一覧/詳細でCRITICAL Findingのタイトル、重要度、対象リソース種別を確認する。
+5. Backend_API の `GET /findings` / `GET /findings/{id}` でもProduct_A側の登録内容・重大度・対応ステータスを確認する。
+6. 対応ステータス変更は API 経由で行い、`audit_logs` に変更前後値が 1 件記録されることを確認（Property 6）。
+7. 判定結果が想定値域外・未取込の場合は当該メッセージの DLQ 有無を確認（下記）。
 
 ## DLQ > 0 時
 
@@ -54,10 +57,11 @@ design.md の「Error Handling / 障害時の考慮 / コスト最適化（撤�
 
 ## A→B 連携確認
 
-1. A→B 連携の実行主体は **`monthly-summary-cronjob`（Cronjob_Summary）に限定**。Backend_API から Portal への直接書き込み経路は無い。
-2. CronJob 実行後、Portal_Storage(`reports/<period>/summary.json`) 配置・`report_metadata` 登録・`public_status_items` 反映を確認。
-3. キーは決定的で再実行しても重複せず上書き（`period` / `external_id` UNIQUE の冪等）。
-4. **B→A（Product_B → Product_A）への書き込み・参照が発生していないこと**を確認（設計上排除。連携は非機微・ダミーのみ）。
+1. A→B 連携の書込み主体は **`monthly-summary-cronjob`**（月次レポート）と **`security-finding-worker`**（CRITICAL Findingのみ）に限定する。Backend_API から Portal への直接書き込み経路は無い。
+2. CronJob 実行後、Portal_Storage(`reports/<period>/summary.json`) 配置・`report_metadata`登録・`public_status_items`反映を確認する。
+3. CRITICAL Finding投入後、Auroraへの登録と`public_status_items`への1件反映を確認する。非CRITICAL FindingはAuroraだけに登録される。
+4. キーは決定的で再実行しても重複せず上書きされる。
+5. **B→A（Product_B → Product_A）への書き込み・参照が発生していないこと**を確認する。
 
 ## ロールバック観点（App_Deploy）
 

@@ -598,6 +598,19 @@
   - **rollback**: 完了報告記載を revert。
   - **実施結果（2026-09-06）**: `docs/operation/aws-build-procedure.md` 付録Aに全Category Cの要件/AC、状態、保留理由、必要環境、残存リスク、実施手順を記録。付録BにA/B検証結果、任意skip、残存P0=0、region境界、指定の非断定的完了文言を記録し、docs-consistency testに合格。
 
+- [x] 36. Security Hub CRITICAL Finding のPortal一方向連携
+  - **実装目的**: native Security Hub Findingを取り込み、CRITICALだけを既存Status Portalへ表示する（Req 34）。
+  - **新規作成ファイル**: `apps/eks-workers/workers/critical_finding_linkage.py`。
+  - **変更が必要な既存ファイル**: `infra/modules/messaging/*`、`infra/modules/eks/*`、`infra/environments/dev/outputs.tf`、Worker_Finding実装/manifest、Portal frontend、関連テスト/README/運用手順。
+  - **実装内容**: Security Hub CRITICAL EventBridge rule→finding queue、ASFF複数Finding解析、全件Aurora冪等登録、CRITICALのみ決定的`status_id`で`public_status_items`へPutItem、Portal詳細へ重要度/リソース種別表示。Product_B→Product_A経路は追加しない。
+  - **先行 Task**: 8, 13, 16, 17, 24, 27, 35。
+  - _Requirements: 34.1, 34.2, 34.3, 34.4, 34.5, 34.6, 34.7_
+  - **Verification Category**: A / C。
+  - **完了条件**: EventBridge/IAM/static test、ASFF/CRITICAL限定/idempotency unit test、frontend test、Terraform fmt/validateが成功。
+  - **ローカル/CI テスト**: EKS worker、messaging、EKS IAM、frontend、deploy-scriptの各test。
+  - **Category C 保留検証**: Security Hub有効化済みdev環境での実Finding→CloudFront表示。BP-13-C02-SHを参照。
+  - **rollback**: EventBridge rule/target、finding roleのDynamoDB権限、Worker_FindingのPortal投影、Portal表示拡張を同時にrevertする。
+
 ## Notes
 
 - Requirement 検証に必要なテスト（Property 1〜4 の property test、bearer 認証 unit test 等）は**必須（`*` なし）**とし、Task 34 の Definition of Done に含める。
@@ -697,6 +710,7 @@
 | Requirement 31: ドキュメント整合 | 33 |
 | Requirement 32: 必須静的・単体テストスイート | 34 |
 | Requirement 33: スコープ境界と完了条件 | 35 |
+| Requirement 34: Security Hub CRITICAL Finding のポータル連携 | 36 |
 
 ## Task Dependency Graph
 
@@ -715,7 +729,8 @@
     { "id": 9, "tasks": ["32"] },
     { "id": 10, "tasks": ["33"] },
     { "id": 11, "tasks": ["34"] },
-    { "id": 12, "tasks": ["35"] }
+    { "id": 12, "tasks": ["35"] },
+    { "id": 13, "tasks": ["36"] }
   ]
 }
 ```

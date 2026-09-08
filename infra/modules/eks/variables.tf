@@ -198,7 +198,7 @@ variable "report_metadata_table_arn" {
 }
 
 variable "public_status_items_table_arn" {
-  description = "DynamoDB public_status_items table ARN writable by the summary cronjob."
+  description = "DynamoDB public_status_items table ARN writable by the summary cronjob and by the finding worker for CRITICAL findings only."
   type        = string
 
   validation {

@@ -24,6 +24,7 @@ def test_settings_from_env_reads_non_secret_values() -> None:
         "WORKER_DB_PORT": "5432",
         "WORKER_DB_NAME": "opsplatform",
         "WORKER_SQS_QUEUE_URL": "https://sqs.ap-northeast-1.amazonaws.com/111122223333/q",
+        "PORTAL_PUBLIC_STATUS_ITEMS_TABLE": "public-status-items",
         "WORKER_MAX_MESSAGES": "5",
     }
     settings = WorkerSettings.from_env(env)
@@ -33,6 +34,7 @@ def test_settings_from_env_reads_non_secret_values() -> None:
     assert settings.db_port == 5432
     assert settings.db_name == "opsplatform"
     assert settings.max_messages == 5
+    assert settings.require_portal_public_status_items_table() == "public-status-items"
 
 
 def test_missing_required_config_raises_without_leaking() -> None:
@@ -41,6 +43,8 @@ def test_missing_required_config_raises_without_leaking() -> None:
         settings.require_db_secret_arn()
     with pytest.raises(WorkerConfigurationError):
         settings.require_sqs_queue_url()
+    with pytest.raises(WorkerConfigurationError):
+        settings.require_portal_public_status_items_table()
 
 
 def test_invalid_int_config_raises() -> None:
@@ -77,7 +81,8 @@ def test_importing_workers_package_does_no_io() -> None:
 
     for name in ("workers", "workers.config", "workers.sqs", "workers.stores",
                  "workers.alarm", "workers.finding", "workers.summary",
-                 "workers.linkage", "workers.portal_adapters"):
+                 "workers.linkage", "workers.critical_finding_linkage",
+                 "workers.portal_adapters"):
         importlib.import_module(name)
 
 

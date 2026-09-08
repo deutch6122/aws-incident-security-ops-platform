@@ -262,6 +262,7 @@ def test_eks_manifests_reference_distinct_workload_images_and_queues() -> None:
     assert "${SUMMARY_CRONJOB_IMAGE}" in summary
     assert "${ALARM_QUEUE_URL}" in alarm and "${FINDING_QUEUE_URL}" not in alarm
     assert "${FINDING_QUEUE_URL}" in finding and "${ALARM_QUEUE_URL}" not in finding
+    assert "${PORTAL_PUBLIC_STATUS_ITEMS_TABLE}" in finding
     for placeholder in ("${WORKER_DB_SECRET_ARN}", "${WORKER_DB_HOST}", "${WORKER_DB_PORT}", "${WORKER_DB_NAME}"):
         assert placeholder in alarm
         assert placeholder in finding

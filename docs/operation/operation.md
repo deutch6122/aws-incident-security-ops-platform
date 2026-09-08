@@ -35,10 +35,10 @@ flowchart LR
    # 併せて Finding 風イベントも投入する場合
    python3 scripts/seed_finding_events.py --execute --count 5
    ```
-2. **Worker 取込**: `alarm-event-processor` が SQS からアラームを取得し `alarm_events` へ冪等 upsert、`security-finding-worker` が `findings` / `finding_triage` へ整合登録する（同一 `external_id` は重複しない）。
+2. **Worker 取込**: `alarm-event-processor` が SQS からアラームを取得し `alarm_events` へ冪等 upsert、`security-finding-worker` がサンプルまたはnative Security Hub Findingを`findings` / `finding_triage`へ整合登録する。CRITICALだけは`public_status_items`にも決定的キーで一方向upsertする。
 3. **Backend API 確認**: `GET /dashboard/summary` で incident/finding 件数と status_breakdown を確認。`GET /incidents`・`GET /findings` で一覧、`GET /incidents/{id}` で詳細を確認。状態変更（`PATCH /incidents/{id}/status`）で `audit_logs` に 1 件記録されることを確認。
 4. **月次集計**: `monthly-summary-cronjob` が対象期間の incidents/findings/alarm_events を集計し `monthly_summaries` へ `period` UNIQUE で upsert。再実行しても 1 行（最新値更新）。
-5. **A→B 連携**: 同 CronJob が Portal_Storage(`reports/<period>/summary.json`) へレポート配置、`report_metadata` 登録、`public_status_items` 反映（非機微・ダミーのみ、B→A 書き込みなし）。Portal 側の初期データは以下でシード可能。
+5. **A→B 連携**: CronJobがPortal_Storage(`reports/<period>/summary.json`)へレポート配置、`report_metadata`登録、`public_status_items`反映を行う。さらにWorker_FindingがCRITICAL Security Hub Findingの表示用項目だけを`public_status_items`へ反映する。いずれもB→A書き込みはない。Portal側の初期データは以下でシード可能。
    ```bash
    python3 scripts/seed_portal_reports.py --execute \
      --report-metadata-table ops-platform-dev-report-metadata \

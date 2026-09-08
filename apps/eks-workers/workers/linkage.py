@@ -1,8 +1,8 @@
 """A->B linkage for Cronjob_Summary (Requirement 14.1, 14.2, 14.3).
 
-The monthly-summary CronJob is the ONLY execution subject of the A->B linkage
-(design.md "A->B 連携の実行主体は Cronjob_Summary に限定"). After the monthly
-summary is upserted into Aurora (Product_A), this module derives a NON-SENSITIVE
+The monthly-summary CronJob is the only execution subject of the monthly report
+A->B linkage. After the monthly summary is upserted into Aurora (Product_A),
+this module derives a NON-SENSITIVE
 report from that summary and reflects it into Product_B:
 
 * a report file placed under Portal_Storage ``reports/<period>.json``,

@@ -42,7 +42,7 @@
 
 ### 全体構成（Product_A / Product_B の分離と A→B 一方向連携）
 
-Product_A（内部運用基盤）と Product_B（公開ポータル）は単一システムへ統合せず、連携は **A→B の一方向・非同期のみ**（実行主体は `Cronjob_Summary` に限定）。Product_B → Product_A への書き込み・参照は設計上排除する（Req 10.5）。
+Product_A（内部運用基盤）と Product_B（公開ポータル）は単一システムへ統合せず、連携は **A→B の一方向・非同期のみ**。書込み主体は月次レポートの`Cronjob_Summary`と、CRITICAL Security Hub Finding投影の`Worker_Finding`に限定する。Product_B → Product_A への書き込み・参照は設計上排除する（Req 10.5, Req 34.6）。
 
 ```mermaid
 graph TB
@@ -51,7 +51,9 @@ graph TB
     ECS --> AUR["Aurora Serverless v2 (PostgreSQL, 7 tables)"]
     EB_A["EventBridge rule: alarm detail-type"] --> SQS_A["SQS alarm queue"] --> WA["EKS Worker_Alarm"]
     SQS_A -.maxReceive=5.-> DLQ_A["alarm DLQ"]
-    EB_F["EventBridge rule: finding detail-type"] --> SQS_F["SQS finding queue"] --> WF["EKS Worker_Finding"]
+    SH["Security Hub"] --> EB_SH["EventBridge rule: CRITICAL imported finding"]
+    EB_SH --> SQS_F["SQS finding queue"] --> WF["EKS Worker_Finding"]
+    EB_F["EventBridge rule: sample finding detail-type"] --> SQS_F
     SQS_F -.maxReceive=5.-> DLQ_F["finding DLQ"]
     WA --> AUR
     WF --> AUR
@@ -68,6 +70,7 @@ graph TB
 
   CRON ==>|A→B 一方向: s3:PutObject reports/*| S3
   CRON ==>|dynamodb:PutItem| DDB
+  WF ==>|CRITICALのみ: dynamodb:PutItem public_status_items| DDB
 ```
 
 - **region**: 全リソース `ap-northeast-1`。ただし **CLOUDFRONT スコープの WAF のみ `us-east-1`**（`aws.us_east_1` aliased provider 経由）（Req 33.5, Req 17）。
@@ -294,8 +297,8 @@ iam module が policy に用いる ECR repository ARN / DB Secret ARN は dev ro
 | `migration-role`（migration task role） | **iam（新規）** | 一回限りマイグレーションタスクの runner が実行時に DB secret を取得 | `secretsmanager:GetSecretValue`（DB secret ARN のみ）**のみ**。**awslogs（CloudWatch Logs）権限は付与しない**（execution role 側） |
 | `migration-launcher-role`（migration 起動主体, 確定） | **iam（新規, role 本体 + trust policy のみ）** | Operator が AssumeRole し、初回 infra 後に migration one-off task を単発起動する唯一の起動主体 | iam module は **role 本体と trust policy のみ**を作成し、role name / ARN を output する。**`ecs:RunTask` / `ecs:DescribeTasks` / `iam:PassRole` を含む起動用 policy は iam module では付与せず、dev root 直下の `aws_iam_role_policy.migration_launcher` で attach する**（後述「migration-launcher-role の RunTask policy 所有場所」）。理由: RunTask policy は ecs module 出力（migration cluster ARN / migration task definition ARN）を必要とし、iam module 入力にすると iam↔ecs 循環になるため。 |
 | `eks-alarm-worker-role`（IRSA） | eks（既存を分割） | Alarm SQS 受信/削除, DB secret 取得, Logs | `sqs:ReceiveMessage`/`DeleteMessage`/`GetQueueAttributes`/`GetQueueUrl`（**alarm queue ARN のみ**）, `secretsmanager:GetSecretValue`（DB secret ARN のみ）, Logs |
-| `eks-finding-worker-role`（IRSA） | eks（既存を分割） | Finding SQS 受信/削除, DB secret 取得, Logs | 同上（**finding queue ARN のみ**）, `secretsmanager:GetSecretValue`（DB secret ARN のみ）, Logs |
-| `eks-cronjob-role`（IRSA, A→B 唯一の実行主体） | eks（既存） | Aurora 読取, Portal 書込, Logs | `secretsmanager:GetSecretValue`（DB secret ARN のみ）, `s3:PutObject` を Portal_Storage の `reports/*` のみ, `dynamodb:PutItem` を report_metadata / public_status_items の 2 テーブルのみ（Req 10.2）。他 prefix / table への read/write なし |
+| `eks-finding-worker-role`（IRSA） | eks（既存を分割） | Finding SQS 受信/削除, DB secret 取得, CRITICAL Portal投影, Logs | **finding queue ARN のみ**、DB secret ARNのみ、`dynamodb:PutItem`をpublic_status_items 1テーブルのみ（Req 34.4） |
+| `eks-cronjob-role`（IRSA） | eks（既存） | Aurora 読取, 月次Portal書込, Logs | `secretsmanager:GetSecretValue`（DB secret ARN のみ）, `s3:PutObject` を Portal_Storage の `reports/*` のみ, `dynamodb:PutItem` を report_metadata / public_status_items の 2 テーブルのみ（Req 10.2）。他 prefix / table への read/write なし |
 | `lambda-portal-role` | lambda（既存） | DynamoDB 読取 + page_view_logs 書込, Logs | 各 table ARN に限定。Product_A への書込・参照なし |
 
 （`bootstrap` の CodeBuild / CodePipeline / terraform 実行ロールは本 Feature のスコープ外の既存資産で、iam module では作らない。ただし PassRole については後述の通り bootstrap 側 policy の修正が必要。）
@@ -454,6 +457,8 @@ flowchart TD
 **Docker アーキテクチャ（Req 9）**: image を build する Deploy_Script は全 `docker build` で `--platform linux/amd64` を指定し、ECS の X86_64 ランタイムに一致させる（Req 9.1、スクリプト静的チェックは (A)）。実 `docker build` による image architecture inspect は **(C)（Operator 承認後の実行環境検証。Docker 実行を要するため）**。
 
 **A→B 連携の冪等（Req 10）**: `Cronjob_Summary` manifest に 3 つの Portal 連携環境値（reports bucket / report_metadata table / public_status_items table）を定義（Req 10.1）。対象期間から**決定的な S3 オブジェクトキー**（例: `reports/<YYYYMM>.json`）と**決定的な DynamoDB item キー**を導出し、upsert（`PutItem`）で書き込む（Req 10.3）。リトライ時は同一キーへの upsert で「S3 に 1 オブジェクト、各テーブルに 1 item」へ収束し重複を作らない（Req 10.4）。いずれかの書込失敗時は run を失敗として報告する（Req 10.6）。
+
+**Security Hub CRITICAL連携（Req 34）**: native Security Hubの`Security Hub Findings - Imported`イベントについて、EventBridgeは`detail.findings.Severity.Label=CRITICAL`を含むイベントだけをfinding queueへ配送する。1イベント内の全FindingはWorker_FindingがAuroraへ冪等登録し、判定後のseverityがcriticalの項目だけを、Finding IDのSHA-256から導出した決定的`status_id`で`public_status_items`へupsertする。Portalへ渡すのはtitle、severity、resource type等の表示用投影に限定する。Product_BからAurora/queue/workerを参照する経路は追加しない。
 
 **Lambda 再現可能パッケージ（Req 11, S3 versioned object 参照へ確定）**: 再現可能ビルド手順で決定的 zip を生成し、`lambda` モジュールへは **ローカル filename ではなく versioned S3 object 参照**（`package_s3_bucket` / `package_s3_key` / `package_s3_object_version` / `source_code_hash`）を渡す（Req 11.1, 11.2）。ローカル絶対パス（旧 `"${path.root}/../../../apps/portal-lambda/dist/portal-api.zip"`）は **plan を実行した CodeBuild コンテナの絶対パスとして tfstate/plan に保存されうるため、別コンテナで実行する apply stage で不整合を起こす**。これを避けるため次を確定する:
 

@@ -116,6 +116,24 @@
         var body = doc.createElement("p");
         body.textContent = text(statusBodyFor(item));
         container.appendChild(title);
+        if (item.kind === "security_finding") {
+          var findingMeta = doc.createElement("dl");
+          findingMeta.className = "finding-meta";
+          var severityLabel = doc.createElement("dt");
+          severityLabel.textContent = "重要度";
+          var severityValue = doc.createElement("dd");
+          severityValue.textContent = text(item.severity).toUpperCase();
+          severityValue.className = "severity-critical";
+          var resourceLabel = doc.createElement("dt");
+          resourceLabel.textContent = "リソース種別";
+          var resourceValue = doc.createElement("dd");
+          resourceValue.textContent = text(item.resource_type);
+          findingMeta.appendChild(severityLabel);
+          findingMeta.appendChild(severityValue);
+          findingMeta.appendChild(resourceLabel);
+          findingMeta.appendChild(resourceValue);
+          container.appendChild(findingMeta);
+        }
         container.appendChild(body);
       })
       .catch(function (err) {

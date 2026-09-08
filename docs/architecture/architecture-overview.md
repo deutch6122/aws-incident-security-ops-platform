@@ -24,12 +24,14 @@ flowchart TB
         ALB[ALB] --> API[ECS Fargate Backend_API]
         API --> AUR[(Aurora PostgreSQL)]
         API --> SM[Secrets Manager]
-        EB[EventBridge] --> SQS[SQS Standard]
+        SH[Security Hub] -->|CRITICAL Finding| EB[EventBridge]
+        EB --> SQS[SQS Standard]
         SQS --> WA[Worker_Alarm]
         SQS --> WF[Worker_Finding]
         SQS -.失敗.-> DLQ[SQS DLQ]
         WA --> AUR
         WF --> AUR
+        WF -->|CRITICALのみ PutItem| PSI
         CS[Cronjob_Summary] --> AUR
     end
     subgraph Link["A→B 連携（一方向）"]
@@ -51,7 +53,7 @@ flowchart TB
     VW -->|HTTPS| CF
 ```
 
-> **重要**: A→B 連携の実行主体は MVP では **Cronjob_Summary（`monthly-summary-cronjob`）に限定**する。Backend_API から Portal_DB / Portal_Storage への直接書き込み経路は持たない。
+> **重要**: A→B 連携の書込み主体は、月次レポートを反映する **Cronjob_Summary** と、CRITICAL Security Hub Findingを `public_status_items` へ反映する **Worker_Finding** の2つに限定する。Backend_API から Portal_DB / Portal_Storage への直接書き込み経路は持たない。
 
 ## A→B 一方向連携（B→A は排除）
 
@@ -61,6 +63,7 @@ flowchart TB
 flowchart LR
     subgraph A["Product_A"]
         CS[Cronjob_Summary]
+        WF[Worker_Finding<br/>CRITICALのみ]
     end
     subgraph B["Product_B"]
         PS[Portal_Storage reports/*]
@@ -70,6 +73,7 @@ flowchart LR
     CS -->|reports/period/summary.json| PS
     CS -->|upsert| RM
     CS -->|upsert| PSI
+    WF -->|決定的status_idでupsert| PSI
     B -.->|書き込み・参照なし（設計上排除）| A
 ```
 
@@ -115,11 +119,11 @@ Product_A は「状態を持ち処理を行う内部基盤」、Product_B は「
 ## ECS と EKS の役割分担
 
 - **ECS Fargate（Backend_API）**: Operator の API 呼び出しに対する同期処理。ダッシュボード / インシデント / Finding / 月次集計 API。書き込み先は Aurora。
-- **EKS（ワーカー群）**: EventBridge→SQS 駆動の非同期処理と CronJob。alarm_events 取込 / findings 分類 / 月次集計生成。Aurora への取込・集計と、Cronjob_Summary のみが A→B 連携を行う。
+- **EKS（ワーカー群）**: EventBridge→SQS 駆動の非同期処理と CronJob。alarm_events 取込 / findings 分類 / 月次集計生成。Worker_Findingは全FindingをAuroraへ登録し、CRITICALだけをProduct_Bへ一方向反映する。
 
 ## A→B 連携フロー（要約）
 
-Cronjob_Summary が月次集計を確定すると、(1) レポートファイルを Portal_Storage(`reports/*`) へ配置、(2) メタ情報を `report_metadata` へ登録、(3) 公開ステータスを `public_status_items` へ反映する。非同期・冪等（`period` / `external_id` UNIQUE）のため再実行で安全に回復できる。
+Cronjob_Summary が月次集計を確定すると、(1) レポートファイルを Portal_Storage(`reports/*`) へ配置、(2) メタ情報を `report_metadata` へ登録、(3) 公開ステータスを `public_status_items` へ反映する。加えて、Security HubのImported FindingイベントはEventBridgeでCRITICALを含む場合だけfinding queueへ配送される。Worker_Findingは全FindingをAuroraへ冪等登録し、severityがCRITICALのFindingだけを決定的な`status_id`で`public_status_items`へupsertする。Product_BからProduct_Aを参照する逆向き経路はない。
 
 ## 関連ドキュメント
 

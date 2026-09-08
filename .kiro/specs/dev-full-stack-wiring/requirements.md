@@ -15,7 +15,7 @@
 - **Backend_API**: ECS Fargate 上で稼働する Product_A の同期 API（FastAPI, X86_64）。
 - **Worker_Alarm**: EKS 上で稼働する CloudWatch アラームイベント処理ワーカー（alarm-event-processor）。
 - **Worker_Finding**: EKS 上で稼働するセキュリティ Finding 処理ワーカー（security-finding-worker）。
-- **Cronjob_Summary**: EKS 上で稼働する月次集計 CronJob（monthly-summary-cronjob）。Product_A→Product_B 連携の唯一の実行主体。
+- **Cronjob_Summary**: EKS 上で稼働する月次集計 CronJob（monthly-summary-cronjob）。月次レポートの Product_A→Product_B 連携主体。
 - **Portal_API**: Product_B の Lambda 関数（API Gateway 経由で公開）。
 - **Portal_Frontend**: Product_B の静的フロントエンド（CloudFront + S3 配信）。
 - **Portal_Storage**: Product_B の S3 バケット（静的サイト + `reports/*`、OAC 保護）。
@@ -416,6 +416,20 @@
 6. WHEN the Feature reports completion, THE completion statement SHALL state "statically verified; real AWS plan, apply, and E2E are not performed" and SHALL NOT assert "AWS build is possible". [Verification: A]
 7. WHERE Verification: C criteria remain, THE completion report SHALL list them as pending real-AWS verification to be performed after explicit Operator approval. [Verification: A]
 
+### Requirement 34: Security Hub CRITICAL Finding のポータル連携
+
+**User Story:** As an Operator, I want CRITICAL Security Hub findings reflected in the authenticated status portal, so that viewers can confirm the most urgent security detections without accessing Product_A directly.
+
+#### Acceptance Criteria
+
+1. WHEN Security Hub publishes a `Security Hub Findings - Imported` event containing a Finding whose `Severity.Label` is `CRITICAL`, THE EventBridge configuration SHALL deliver that event to the finding queue. [Verification: A for event-pattern/static test; C for real Security Hub delivery]
+2. THE Worker_Finding SHALL parse native AWS Security Finding Format events containing one or more findings, and SHALL register every finding in Product_A Aurora using the existing idempotent finding/triage path. [Verification: A]
+3. THE Worker_Finding SHALL write only findings assessed as `critical` to Product_B `public_status_items`, using a deterministic `status_id`; non-critical findings SHALL NOT be written to Product_B. [Verification: A; C for real DynamoDB write]
+4. THE Worker_Finding IRSA role SHALL grant only `dynamodb:PutItem` on the `public_status_items` table for this projection and SHALL NOT grant Product_B read permission or access to another Product_B table. [Verification: A]
+5. THE status portal SHALL display the CRITICAL finding title and state in the existing list and SHALL display its severity and resource type in the detail view. [Verification: A for frontend static test; C for live CloudFront view]
+6. THE integration SHALL remain Product_A-to-Product_B only; no Product_B component SHALL receive permission or code to read Product_A Aurora, queues, or worker APIs. [Verification: A]
+7. IF the Product_B PutItem fails, THEN THE SQS message SHALL NOT be deleted, allowing the existing visibility-timeout and DLQ policy to retry it. [Verification: A]
+
 ## Traceability（阻害要因マッピング）
 
 The following table maps each obstruction item (B-001〜B-034) recorded in the「05_阻害要因」sheet to the Requirement number and the Acceptance Criteria numbers that address it. All 34 items map to at least one Requirement; no item is left unmapped, duplicated, or misnumbered.
@@ -498,3 +512,4 @@ Each Requirement is classified by whether all of its Acceptance Criteria are ver
 | Requirement 31: ドキュメント整合 | A/B のみ | Docs-consistency test. |
 | Requirement 32: 必須静的・単体テストスイート | A/B のみ | Composition of the local/CI test suite. |
 | Requirement 33: スコープ境界と完了条件 | A/B のみ | Scope and Definition-of-Done enforcement (no real AWS operation). |
+| Requirement 34: Security Hub CRITICAL Finding のポータル連携 | C を含む | Event pattern/parser/IAM/frontend are A; real Security Hub→EventBridge→SQS→EKS→DynamoDB→CloudFront is C. |

@@ -59,6 +59,25 @@ ul.item-list a {
   color: var(--muted);
 }
 
+.finding-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+}
+
+.finding-meta dt {
+  color: var(--muted);
+}
+
+.finding-meta dd {
+  margin: 0;
+}
+
+.severity-critical {
+  color: #b42318;
+  font-weight: 700;
+}
+
 button.primary {
   background: var(--accent);
   color: #fff;

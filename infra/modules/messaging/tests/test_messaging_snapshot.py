@@ -84,6 +84,24 @@ def test_event_source_matches_seed_script() -> None:
     assert '"detail-type" = each.value.detail_types' in rule
 
 
+def test_native_securityhub_rule_filters_critical_imported_findings() -> None:
+    rule = _block("aws_cloudwatch_event_rule", "securityhub_critical")
+    assert 'source        = ["aws.securityhub"]' in rule
+    assert '"detail-type" = ["Security Hub Findings - Imported"]' in rule
+    assert "findings" in rule
+    assert "Severity" in rule
+    assert 'Label = ["CRITICAL"]' in rule
+
+    target = _block("aws_cloudwatch_event_target", "securityhub_critical")
+    assert "aws_cloudwatch_event_rule.securityhub_critical.name" in target
+    assert 'aws_sqs_queue.main["finding"].arn' in target
+
+    policy = _block("aws_iam_policy_document", "queue_policy", kind="data")
+    assert "AllowSecurityHubCriticalEventBridgeSendMessage" in policy
+    assert "aws_cloudwatch_event_rule.securityhub_critical.arn" in policy
+    assert 'each.key == "finding"' in policy
+
+
 def test_each_target_references_only_its_own_queue() -> None:
     target = _block("aws_cloudwatch_event_target", "this")
     assert "rule      = aws_cloudwatch_event_rule.this[each.key].name" in target

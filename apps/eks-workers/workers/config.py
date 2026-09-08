@@ -32,6 +32,7 @@ class WorkerSettings:
     db_port: int | None = None
     db_name: str | None = None
     sqs_queue_url: str | None = None
+    portal_public_status_items_table: str | None = None
     max_messages: int = 10
     wait_time_seconds: int = 20
     visibility_timeout_seconds: int = 60
@@ -62,6 +63,9 @@ class WorkerSettings:
             db_port=db_port,
             db_name=_clean(env.get("WORKER_DB_NAME")),
             sqs_queue_url=_clean(env.get("WORKER_SQS_QUEUE_URL")),
+            portal_public_status_items_table=_clean(
+                env.get("PORTAL_PUBLIC_STATUS_ITEMS_TABLE")
+            ),
             max_messages=_int("WORKER_MAX_MESSAGES", 10),
             wait_time_seconds=_int("WORKER_WAIT_TIME_SECONDS", 20),
             visibility_timeout_seconds=_int("WORKER_VISIBILITY_TIMEOUT_SECONDS", 60),
@@ -76,3 +80,10 @@ class WorkerSettings:
         if self.sqs_queue_url is None:
             raise WorkerConfigurationError("WORKER_SQS_QUEUE_URL is not configured")
         return self.sqs_queue_url
+
+    def require_portal_public_status_items_table(self) -> str:
+        if self.portal_public_status_items_table is None:
+            raise WorkerConfigurationError(
+                "PORTAL_PUBLIC_STATUS_ITEMS_TABLE is not configured"
+            )
+        return self.portal_public_status_items_table
