@@ -242,7 +242,7 @@ aws acm describe-certificate \
 
 ~~~bash
 export CONNECTION_REGION=us-east-1
-export CONNECTION_NAME=ops-platform-dev-github
+export CONNECTION_NAME=aws-incident-security-ops
 
 export CODESTAR_CONNECTION_ARN="$(aws codestar-connections list-connections \
   --region "$CONNECTION_REGION" \
@@ -362,6 +362,8 @@ plan前に bootstrap/iam.tf と bootstrap/cicd.tf も読み取り確認し、ter
 | 次へ進める条件 | Bootstrap outputs が取得でき、Pipeline stage が Source→Fmt→Validate→Plan→Approval→Apply |
 
 ~~~bash
+export AWS_REGION="ap-northeast-1"
+export PIPELINE_NAME="ops-platform-dev-infra-pipeline"
 terraform -chdir=bootstrap fmt -check
 terraform -chdir=bootstrap init
 terraform -chdir=bootstrap validate
@@ -588,14 +590,12 @@ test -n "$EKS_VERSION"
 aws eks describe-cluster-versions \
   --region "$AWS_REGION" \
   --cluster-versions "$EKS_VERSION" \
-  --include-all \
   --query 'clusterVersions[0].{Version:clusterVersion,Status:versionStatus,StandardSupportEnd:endOfStandardSupportDate,ExtendedSupportEnd:endOfExtendedSupportDate}' \
   --output table
 
 test "$(aws eks describe-cluster-versions \
   --region "$AWS_REGION" \
   --cluster-versions "$EKS_VERSION" \
-  --include-all \
   --query 'clusterVersions[0].versionStatus' \
   --output text)" = "STANDARD_SUPPORT"
 ~~~
