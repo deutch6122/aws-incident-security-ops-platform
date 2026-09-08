@@ -67,9 +67,9 @@ def test_operation_demo_scenario_present() -> None:
     assert ("デモ" in text) or ("シナリオ" in text), "operation missing demo scenario"
 
 
-def test_build_procedure_records_category_c_as_pending() -> None:
+def test_build_procedure_records_category_c_live_results_and_pending_items() -> None:
     text = _read(BUILD_PROCEDURE)
-    assert "### 付録A. Category C 保留検証一覧" in text
+    assert "### 付録A. Category C 実環境検証記録" in text
     for requirement in (
         "Req 5.3 / 5.5",
         "Req 6.3 / 6.4 / 6.7",
@@ -91,5 +91,6 @@ def test_build_procedure_records_category_c_as_pending() -> None:
     assert "必要環境" in text
     assert "未検証の残存リスク" in text
     assert "残存P0は0件" in text
-    assert "statically verified; real AWS plan, apply, and E2E are not performed" in text
-    assert "「AWS build is possible」という断定ではない" in text
+    assert "statically verified and live-tested on the dev AWS account" in text
+    assert "Flow Logs evidence and SNS delivery remain pending" in text
+    assert "別アカウント・別時点の無条件な成功を保証しない" in text
