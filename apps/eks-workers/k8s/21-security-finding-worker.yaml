@@ -44,6 +44,8 @@ spec:
               value: ${WORKER_DB_NAME}
             - name: WORKER_SQS_QUEUE_URL
               value: ${FINDING_QUEUE_URL}
+            - name: PORTAL_PUBLIC_STATUS_ITEMS_TABLE
+              value: ${PORTAL_PUBLIC_STATUS_ITEMS_TABLE}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

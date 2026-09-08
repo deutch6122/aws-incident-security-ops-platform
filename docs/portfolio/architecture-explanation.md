@@ -94,7 +94,8 @@ AWS Incident & Security Operations Platform のアーキテクチャを詳しく
 | --- | --- |
 | **alarm-event-processor** | SQS からアラームイベントを取得し、`alarm_events` テーブルへ upsert（`external_id` UNIQUE で冪等） |
 | **security-finding-worker** | SQS から Finding 風イベントを取得し、`findings` / `finding_triage` へ登録（同一 `external_id` は重複しない） |
-| **monthly-summary-cronjob** | 月次集計を実行し、A→B 連携の唯一の実行主体として Portal_Storage / report_metadata / public_status_items へ反映 |
+| **monthly-summary-cronjob** | 月次集計を実行し、Portal_Storage / report_metadata / public_status_items へ一方向反映 |
+| **security-finding-worker** | Security Hub FindingをAuroraへ登録し、CRITICALだけをpublic_status_itemsへ一方向反映 |
 
 ## Aurora PostgreSQL の説明
 

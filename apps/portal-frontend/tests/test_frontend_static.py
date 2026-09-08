@@ -128,3 +128,13 @@ def test_pages_accept_seeded_status_and_report_field_names() -> None:
     assert "item.overview || item.message" in pages
     assert "reportStorageKeyFor" in pages
     assert "report.s3_key || report.storage_key" in pages
+
+
+def test_security_finding_detail_displays_critical_severity_and_resource_type() -> None:
+    pages = _read("js/pages.js")
+    styles = _read("css/styles.css")
+
+    assert 'item.kind === "security_finding"' in pages
+    assert 'severityValue.textContent = text(item.severity).toUpperCase()' in pages
+    assert "item.resource_type" in pages
+    assert ".severity-critical" in styles

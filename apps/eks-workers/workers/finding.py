@@ -103,6 +103,64 @@ def _unwrap_eventbridge_envelope(raw: dict[str, Any]) -> dict[str, Any]:
     return dict(detail)
 
 
+def _securityhub_finding_to_flat(raw: dict[str, Any]) -> dict[str, Any]:
+    """Convert one AWS Security Finding Format item to the worker contract."""
+
+    severity = raw.get("Severity")
+    resources = raw.get("Resources")
+    workflow = raw.get("Workflow")
+
+    severity_label = severity.get("Label") if isinstance(severity, dict) else None
+    resource_type = None
+    if isinstance(resources, list) and resources and isinstance(resources[0], dict):
+        resource_type = resources[0].get("Type")
+    workflow_status = workflow.get("Status") if isinstance(workflow, dict) else None
+
+    return {
+        "external_id": raw.get("Id"),
+        "title": raw.get("Title"),
+        "severity": severity_label,
+        "resource_type": resource_type,
+        "workflow_state": workflow_status,
+    }
+
+
+def _parse_flat_finding(raw: dict[str, Any]) -> FindingEvent:
+    """Parse the worker's normalized, single-finding input shape."""
+
+    external_id = raw.get("external_id")
+    if not isinstance(external_id, str) or not external_id.strip():
+        raise FindingEventError("finding event field external_id must be non-empty text")
+
+    title = raw.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise FindingEventError("finding event field title must be non-empty text")
+
+    raw_severity = raw.get("severity")
+    if not isinstance(raw_severity, str) or not raw_severity.strip():
+        raise FindingEventError("finding event field severity must be non-empty text")
+
+    resource_type = raw.get("resource_type")
+    if resource_type is not None and not isinstance(resource_type, str):
+        raise FindingEventError("finding event resource_type must be text when present")
+
+    raw_status = raw.get("status", raw.get("workflow_state"))
+    if raw_status is not None and not isinstance(raw_status, str):
+        raise FindingEventError("finding event status must be text when present")
+
+    return FindingEvent(
+        external_id=external_id.strip(),
+        title=title.strip(),
+        raw_severity=raw_severity.strip(),
+        resource_type=(
+            resource_type.strip()
+            if isinstance(resource_type, str) and resource_type.strip()
+            else None
+        ),
+        raw_status=raw_status,
+    )
+
+
 def normalize_severity(raw_severity: str) -> str:
     """Map arbitrary severity text to an allowed severity. Unknown -> medium."""
 
@@ -133,38 +191,42 @@ def judge_finding(event: FindingEvent) -> FindingJudgement:
     )
 
 
+def parse_finding_events(body: str | dict[str, Any]) -> list[FindingEvent]:
+    """Parse a sample/direct finding or a native Security Hub event batch.
+
+    Security Hub's ``Security Hub Findings - Imported`` event stores AWS
+    Security Finding Format objects under ``detail.findings``. AWS currently
+    emits one finding per event; accepting a non-empty list keeps parsing
+    robust for fixtures and future-compatible envelopes. The worker evaluates
+    every item and applies the Product_B CRITICAL-only rule independently.
+    """
+
+    envelope = _decode_object(body)
+    detail = envelope.get("detail")
+    if isinstance(detail, str):
+        try:
+            detail = json.loads(detail)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise FindingEventError("finding event detail is not valid JSON") from exc
+
+    if isinstance(detail, dict) and "findings" in detail:
+        findings = detail.get("findings")
+        if not isinstance(findings, list) or not findings:
+            raise FindingEventError("Security Hub event findings must be a non-empty list")
+        if not all(isinstance(item, dict) for item in findings):
+            raise FindingEventError("Security Hub event findings must contain objects")
+        return [_parse_flat_finding(_securityhub_finding_to_flat(item)) for item in findings]
+
+    return [_parse_flat_finding(_unwrap_eventbridge_envelope(envelope))]
+
+
 def parse_finding_event(body: str | dict[str, Any]) -> FindingEvent:
-    """Parse a JSON body (or already-decoded dict) into a FindingEvent."""
+    """Parse a body containing exactly one logical finding."""
 
-    raw = _unwrap_eventbridge_envelope(_decode_object(body))
-
-    external_id = raw.get("external_id")
-    if not isinstance(external_id, str) or not external_id.strip():
-        raise FindingEventError("finding event field external_id must be non-empty text")
-
-    title = raw.get("title")
-    if not isinstance(title, str) or not title.strip():
-        raise FindingEventError("finding event field title must be non-empty text")
-
-    raw_severity = raw.get("severity")
-    if not isinstance(raw_severity, str) or not raw_severity.strip():
-        raise FindingEventError("finding event field severity must be non-empty text")
-
-    resource_type = raw.get("resource_type")
-    if resource_type is not None and not isinstance(resource_type, str):
-        raise FindingEventError("finding event resource_type must be text when present")
-
-    raw_status = raw.get("status", raw.get("workflow_state"))
-    if raw_status is not None and not isinstance(raw_status, str):
-        raise FindingEventError("finding event status must be text when present")
-
-    return FindingEvent(
-        external_id=external_id.strip(),
-        title=title.strip(),
-        raw_severity=raw_severity.strip(),
-        resource_type=resource_type.strip() if isinstance(resource_type, str) and resource_type.strip() else None,
-        raw_status=raw_status,
-    )
+    events = parse_finding_events(body)
+    if len(events) != 1:
+        raise FindingEventError("finding event contains multiple findings")
+    return events[0]
 
 
 def build_records(event: FindingEvent, judgement: FindingJudgement) -> tuple[FindingRecord, TriageRecord]:

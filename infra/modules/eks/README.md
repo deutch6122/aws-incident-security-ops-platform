@@ -26,10 +26,10 @@ Public API endpoint を有効にする場合、`eks_public_access_cidrs` は必�
 | Role / ServiceAccount | 許可範囲 |
 | --- | --- |
 | `eks-alarm-worker-role` / `eks-alarm-worker` | alarm queue の receive/delete/attributes/url、DB secret 1件の参照、DB secret KMS keyのDecrypt（key ARN限定、Secrets Manager経由のみ）、worker log group への書き込み |
-| `eks-finding-worker-role` / `eks-finding-worker` | finding queue の receive/delete/attributes/url、DB secret 1件の参照、DB secret KMS keyのDecrypt（key ARN限定、Secrets Manager経由のみ）、worker log group への書き込み |
+| `eks-finding-worker-role` / `eks-finding-worker` | finding queue の receive/delete/attributes/url、DB secret 1件の参照、DB secret KMS keyのDecrypt（key ARN限定、Secrets Manager経由のみ）、worker log group への書き込み、`public_status_items`へのPutItem（CRITICAL Finding投影） |
 | `eks-cronjob-role` / `eks-cronjob` | DB secret 1件の参照、DB secret KMS keyのDecrypt（key ARN限定、Secrets Manager経由のみ）、worker log group への書き込み、Portal bucket の `reports/*` への PutObject、`report_metadata` と `public_status_items` への PutItem |
 
-alarm role は finding queue を参照せず、finding role は alarm queue を参照しません。Cronjob role に SQS 権限、S3 read、DynamoDB UpdateItem、Aurora 以外の secret 権限は付与しません。Secret の値や接続文字列は module、output、manifest に保存せず、ARN 参照のみを渡します。
+alarm role は finding queue を参照せず、finding role は alarm queue を参照しません。finding roleのDynamoDB権限は`public_status_items` 1テーブルの`PutItem`だけで、Portalからの読取りやProduct_B→Product_Aの権限はありません。Cronjob role に SQS 権限、S3 read、DynamoDB UpdateItem、Aurora 以外の secret 権限は付与しません。Secret の値や接続文字列は module、output、manifest に保存せず、ARN 参照のみを渡します。
 
 Fargate pod execution role の logging statement だけは `Resource = "*"` を使用します。ログルーターが stream を実行時生成するため事前に対象 ARN を確定できないことが理由で、許可 action は CloudWatch Logs の生成・列挙・書き込みに限定しています。
 

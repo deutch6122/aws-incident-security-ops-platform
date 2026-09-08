@@ -110,6 +110,11 @@ def test_worker_roles_are_scoped_to_their_own_queue() -> None:
     assert "Resource = [var.finding_queue_arn]" in finding
     assert "var.alarm_queue_arn" not in finding
     assert "sqs_queue_arns" not in MAIN + VARIABLES
+    assert "WriteCriticalFindingPortalStatus" not in alarm
+    assert "WriteCriticalFindingPortalStatus" in finding
+    assert "dynamodb:PutItem" in finding
+    assert "Resource = [var.public_status_items_table_arn]" in finding
+    assert "var.report_metadata_table_arn" not in finding
 
 
 def test_cronjob_role_writes_only_reports_prefix_and_two_tables() -> None:
@@ -203,3 +208,8 @@ def test_worker_manifests_bind_three_distinct_service_accounts() -> None:
     assert "serviceAccountName: eks-finding-worker" in (
         manifests / "21-security-finding-worker.yaml"
     ).read_text(encoding="utf-8")
+    finding_manifest = (manifests / "21-security-finding-worker.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "name: PORTAL_PUBLIC_STATUS_ITEMS_TABLE" in finding_manifest
+    assert "value: ${PORTAL_PUBLIC_STATUS_ITEMS_TABLE}" in finding_manifest

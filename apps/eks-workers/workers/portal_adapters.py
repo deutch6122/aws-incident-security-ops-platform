@@ -9,7 +9,8 @@ not exercised offline.
 
 DIRECTIONALITY (Requirement 14.3): these adapters only WRITE into Product_B.
 There is no read path back to Product_B and no reference to Product_A resources.
-The linkage is a one-way A -> B hand-off executed by Cronjob_Summary.
+The linkage is a one-way A -> B hand-off used by Cronjob_Summary and by the
+CRITICAL-only Security Hub finding projection.
 """
 
 from __future__ import annotations

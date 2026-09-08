@@ -71,3 +71,8 @@ output "finding_event_rule_arn" {
   description = "ARN of the EventBridge rule that delivers finding events to the finding queue."
   value       = aws_cloudwatch_event_rule.this["finding"].arn
 }
+
+output "securityhub_critical_event_rule_arn" {
+  description = "ARN of the native Security Hub CRITICAL finding EventBridge rule."
+  value       = aws_cloudwatch_event_rule.securityhub_critical.arn
+}

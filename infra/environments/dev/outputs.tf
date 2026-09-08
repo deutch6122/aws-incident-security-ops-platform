@@ -82,10 +82,11 @@ output "eks_deployment" {
 output "messaging" {
   description = "Queue identifiers required by sample-data and operational verification."
   value = {
-    alarm_queue_url   = module.messaging.alarm_queue_url
-    alarm_dlq_url     = module.messaging.alarm_dlq_url
-    finding_queue_url = module.messaging.finding_queue_url
-    finding_dlq_url   = module.messaging.finding_dlq_url
+    alarm_queue_url                     = module.messaging.alarm_queue_url
+    alarm_dlq_url                       = module.messaging.alarm_dlq_url
+    finding_queue_url                   = module.messaging.finding_queue_url
+    finding_dlq_url                     = module.messaging.finding_dlq_url
+    securityhub_critical_event_rule_arn = module.messaging.securityhub_critical_event_rule_arn
   }
 }
 

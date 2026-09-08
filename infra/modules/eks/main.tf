@@ -364,6 +364,12 @@ resource "aws_iam_role_policy" "finding_worker" {
         }
       },
       {
+        Sid      = "WriteCriticalFindingPortalStatus"
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem"]
+        Resource = [var.public_status_items_table_arn]
+      },
+      {
         Sid    = "CloudWatchLogsWrite"
         Effect = "Allow"
         Action = [

@@ -18,6 +18,8 @@ DLQ redrive-allow policy を所有し、相互のキューを参照しない（R
 | `aws_sqs_queue_redrive_allow_policy.dlq[系統]` | DLQ を使えるのは自系統メインキューのみ（最小権限）。 |
 | `aws_cloudwatch_event_rule.this[系統]` | 系統の EventBridge rule。 |
 | `aws_cloudwatch_event_target.this[系統]` | rule → 自系統メインキューへの配送ターゲット。 |
+| `aws_cloudwatch_event_rule.securityhub_critical` | `aws.securityhub`のImported FindingのうちCRITICALを含むイベントに一致。 |
+| `aws_cloudwatch_event_target.securityhub_critical` | Security Hub CRITICAL rule → finding queueへ配送。 |
 | `aws_sqs_queue_policy.this[系統]` | `events.amazonaws.com` からの `SendMessage` を自系統 rule ARN 限定で許可。 |
 
 alarm 系統は 2 個、finding 系統は 2 個の queue（main + DLQ）を持ち、rule / queue / DLQ は
@@ -30,6 +32,7 @@ alarm 系統は 2 個、finding 系統は 2 個の queue（main + DLQ）を持�
   **alarm queue のみ**へ配送する。
 - finding rule: 同じ source ＋ `detail-type = finding_event_detail_types`
   （既定 `["SecurityFinding"]`）に一致したイベントを **finding queue のみ**へ配送する。
+- Security Hub CRITICAL rule: `source = ["aws.securityhub"]`、`detail-type = ["Security Hub Findings - Imported"]`、`detail.findings.Severity.Label = ["CRITICAL"]`に一致したイベントを **finding queue のみ**へ配送する。
 - 両 rule は相手系統の queue を target にしない。
 
 event source は seed script と同じ `ops-platform.sample`。detail-type は空集合・空文字を
@@ -71,7 +74,8 @@ DLQ とも `sqs_managed_sse_enabled = true`（SSE-SQS）で保存時暗号化す
 - alarm: `alarm_queue_name` / `alarm_queue_url` / `alarm_queue_arn` /
   `alarm_dlq_name` / `alarm_dlq_url` / `alarm_dlq_arn` / `alarm_event_rule_arn`
 - finding: `finding_queue_name` / `finding_queue_url` / `finding_queue_arn` /
-  `finding_dlq_name` / `finding_dlq_url` / `finding_dlq_arn` / `finding_event_rule_arn`
+  `finding_dlq_name` / `finding_dlq_url` / `finding_dlq_arn` / `finding_event_rule_arn` /
+  `securityhub_critical_event_rule_arn`
 
 ## dev root 配線
 

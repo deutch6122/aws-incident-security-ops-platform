@@ -7,7 +7,7 @@ Product_A の EKS ワーカー群（Python）。namespace=`workers`、EKS Fargat
 | ワーカー | k8s 種別 | エントリポイント | 役割 |
 | --- | --- | --- | --- |
 | Worker_Alarm (`alarm-event-processor`) | Deployment | `python -m workers.entrypoints.alarm_event_processor` | SQS からアラーム風イベントを取得→`alarm_events` へ冪等 upsert→メッセージ削除（Req 6.2, 6.5）。 |
-| Worker_Finding (`security-finding-worker`) | Deployment | `python -m workers.entrypoints.security_finding_worker` | 重大度/リソース種別/対応ステータスを判定→`findings`/`finding_triage` へ整合登録・冪等（Req 6.3）。 |
+| Worker_Finding (`security-finding-worker`) | Deployment | `python -m workers.entrypoints.security_finding_worker` | Security HubまたはサンプルFindingを判定→`findings`/`finding_triage`へ冪等登録。CRITICALのみを`public_status_items`へ一方向upsert。 |
 | Cronjob_Summary (`monthly-summary-cronjob`) | CronJob | `python -m workers.entrypoints.monthly_summary_cronjob` | 対象年月を集計し、Product_Aへperiod UNIQUE upsert後、`reports/<YYYYMM>.json`とPortalの2テーブルへ決定的キーで一方向upsert。 |
 
 ## パッケージ構成
@@ -19,6 +19,7 @@ workers/
   stores.py                リポジトリ Protocol と in-memory fake（テスト用の DB 代替）
   alarm.py                 Worker_Alarm コアロジック（純関数 + 冪等 upsert）
   finding.py               Worker_Finding 判定（純関数）+ 整合登録
+  critical_finding_linkage.py  CRITICAL Findingの表示用投影 + 決定的status_id
   summary.py               Cronjob_Summary 集計（純関数）+ period upsert
   db/
     secrets.py             Secrets Manager から DB 認証情報を安全取得（ARN 参照/遅延/redaction）
@@ -61,7 +62,8 @@ manifest には実 ARN・実イメージ URI を書かない。`scripts/deploy-e
 - `${WORKER_DB_HOST}` / `${WORKER_DB_PORT}` / `${WORKER_DB_NAME}` … aurora output の非機微接続メタデータ
 - `${ALARM_QUEUE_URL}` / `${FINDING_QUEUE_URL}` … messaging moduleの各queue URL
 - `${AWS_REGION}` / `${WORKER_LOG_GROUP_NAME}` … region と eks module 出力 `worker_log_group_name`
-- `${PORTAL_REPORTS_BUCKET}` / `${PORTAL_REPORT_METADATA_TABLE}` / `${PORTAL_PUBLIC_STATUS_ITEMS_TABLE}` … Cronjob_Summary の3つのProduct_B書込先
+- `${PORTAL_REPORTS_BUCKET}` / `${PORTAL_REPORT_METADATA_TABLE}` … Cronjob_Summary のProduct_B書込先
+- `${PORTAL_PUBLIC_STATUS_ITEMS_TABLE}` … Cronjob_SummaryとWorker_Findingの書込先。Worker_FindingはCRITICAL Findingだけを書き込む
 
 `deploy-eks.sh` は `00-namespace.yaml`、`40-fargate-logging.yaml`、ServiceAccount、各workloadの順に適用する。既定はdry-runで、`--execute` がない限りDocker・AWS CLI・kubectlを呼ばない。必須値と実行例は `scripts/deploy-eks.sh --help` を参照する。
 

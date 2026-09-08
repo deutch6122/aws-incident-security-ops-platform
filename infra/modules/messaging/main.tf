@@ -106,6 +106,39 @@ resource "aws_cloudwatch_event_target" "this" {
   arn       = aws_sqs_queue.main[each.key].arn
 }
 
+# Native Security Hub findings use a different source/detail shape from the
+# deterministic sample events above. Keep the sample route for local/operator
+# verification, and add a dedicated production-shaped route that sends only
+# CRITICAL imported findings to the finding queue.
+resource "aws_cloudwatch_event_rule" "securityhub_critical" {
+  name        = "${var.name_prefix}-securityhub-critical-rule"
+  description = "Routes imported Security Hub findings with CRITICAL severity to the finding SQS queue."
+
+  event_pattern = jsonencode({
+    source        = ["aws.securityhub"]
+    "detail-type" = ["Security Hub Findings - Imported"]
+    detail = {
+      findings = {
+        Severity = {
+          Label = ["CRITICAL"]
+        }
+      }
+    }
+  })
+
+  tags = merge(var.common_tags, {
+    Name      = "${var.name_prefix}-securityhub-critical-rule"
+    Component = "messaging"
+    Role      = "securityhub-critical-event-rule"
+  })
+}
+
+resource "aws_cloudwatch_event_target" "securityhub_critical" {
+  rule      = aws_cloudwatch_event_rule.securityhub_critical.name
+  target_id = "${var.name_prefix}-securityhub-critical-sqs"
+  arn       = aws_sqs_queue.main["finding"].arn
+}
+
 # Per-system queue policy: allow only the EventBridge service to SendMessage, and
 # only for THIS system's rule (aws:SourceArn condition). This is minimum
 # privilege for the EventBridge -> SQS delivery path and prevents the other
@@ -129,6 +162,29 @@ data "aws_iam_policy_document" "queue_policy" {
       test     = "ArnEquals"
       variable = "aws:SourceArn"
       values   = [aws_cloudwatch_event_rule.this[each.key].arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = each.key == "finding" ? [1] : []
+
+    content {
+      sid     = "AllowSecurityHubCriticalEventBridgeSendMessage"
+      effect  = "Allow"
+      actions = ["sqs:SendMessage"]
+
+      principals {
+        type        = "Service"
+        identifiers = ["events.amazonaws.com"]
+      }
+
+      resources = [aws_sqs_queue.main["finding"].arn]
+
+      condition {
+        test     = "ArnEquals"
+        variable = "aws:SourceArn"
+        values   = [aws_cloudwatch_event_rule.securityhub_critical.arn]
+      }
     }
   }
 }

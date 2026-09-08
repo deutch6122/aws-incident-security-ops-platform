@@ -1408,6 +1408,110 @@ test "$ALARM_DLQ_BEFORE" = "$ALARM_DLQ_AFTER"
 test "$FINDING_DLQ_BEFORE" = "$FINDING_DLQ_AFTER"
 ~~~
 
+#### Security Hub CRITICAL Findingの実経路確認（BP-13-C02-SH）
+
+この確認はSecurity Hubを既に有効化しているdevアカウントでのみ行う。Security Hubの有効化や標準の有効化には料金が発生し得るため、本手順から自動有効化しない。`describe-hub`が失敗した場合は停止し、費用承認後に別途有効化する。
+
+最初のブロックは設定確認だけでAWSリソースを変更しない。2つ目の`batch-import-findings`は検証用Findingを実際に1件作るため、Operator承認後だけ実行する。
+
+~~~bash
+set -euo pipefail
+export AWS_REGION=ap-northeast-1
+export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+export MESSAGING_JSON="$(terraform -chdir=infra/environments/dev output -json messaging)"
+export SECURITYHUB_RULE_ARN="$(jq -er '.securityhub_critical_event_rule_arn' <<<"$MESSAGING_JSON")"
+export SECURITYHUB_RULE_NAME="${SECURITYHUB_RULE_ARN##*/}"
+export PORTAL_PUBLIC_STATUS_ITEMS_TABLE="$(terraform -chdir=infra/environments/dev output -json portal_deployment | jq -er '.public_status_table_name')"
+
+# Security Hubが有効であることと、CRITICAL ruleが有効であることを確認する。
+aws securityhub describe-hub --region "$AWS_REGION" \
+  --query '{HubArn:HubArn,AutoEnable:AutoEnable}' --output table
+aws events describe-rule --region "$AWS_REGION" --name "$SECURITYHUB_RULE_NAME" \
+  --query '{Name:Name,State:State,EventPattern:EventPattern}' --output json
+
+# 実イベントを作らず、rule patternがCRITICALに一致しHIGHには一致しないことを確認する。
+export SECURITYHUB_EVENT_PATTERN="$(aws events describe-rule \
+  --region "$AWS_REGION" --name "$SECURITYHUB_RULE_NAME" \
+  --query EventPattern --output text)"
+export TEST_EVENT_CRITICAL='{"id":"00000000-0000-0000-0000-000000000001","account":"111122223333","source":"aws.securityhub","time":"2026-01-01T00:00:00Z","region":"ap-northeast-1","resources":[],"detail-type":"Security Hub Findings - Imported","detail":{"findings":[{"Severity":{"Label":"CRITICAL"}}]}}'
+export TEST_EVENT_HIGH='{"id":"00000000-0000-0000-0000-000000000002","account":"111122223333","source":"aws.securityhub","time":"2026-01-01T00:00:00Z","region":"ap-northeast-1","resources":[],"detail-type":"Security Hub Findings - Imported","detail":{"findings":[{"Severity":{"Label":"HIGH"}}]}}'
+test "$(aws events test-event-pattern --region "$AWS_REGION" \
+  --event-pattern "$SECURITYHUB_EVENT_PATTERN" --event "$TEST_EVENT_CRITICAL" \
+  --query Result --output text)" = "True"
+test "$(aws events test-event-pattern --region "$AWS_REGION" \
+  --event-pattern "$SECURITYHUB_EVENT_PATTERN" --event "$TEST_EVENT_HIGH" \
+  --query Result --output text)" = "False"
+~~~
+
+Operator承認後、次のブロックでdev用CRITICAL Findingを投入する。実在の顧客・端末・脆弱性情報は入れない。
+
+~~~bash
+set -euo pipefail
+export TEST_FINDING_SUFFIX="$(date -u +%Y%m%dT%H%M%SZ)"
+export TEST_FINDING_TIME="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+export SECURITYHUB_PRODUCT_ARN="arn:aws:securityhub:${AWS_REGION}:${AWS_ACCOUNT_ID}:product/${AWS_ACCOUNT_ID}/default"
+export TEST_FINDING_ID="${SECURITYHUB_PRODUCT_ARN}/finding/ops-platform-dev-critical-${TEST_FINDING_SUFFIX}"
+
+jq -n \
+  --arg schema "2018-10-08" \
+  --arg finding_id "$TEST_FINDING_ID" \
+  --arg product_arn "$SECURITYHUB_PRODUCT_ARN" \
+  --arg account_id "$AWS_ACCOUNT_ID" \
+  --arg region "$AWS_REGION" \
+  --arg timestamp "$TEST_FINDING_TIME" \
+  '[{
+    SchemaVersion: $schema,
+    Id: $finding_id,
+    ProductArn: $product_arn,
+    GeneratorId: "ops-platform-dev-verification",
+    AwsAccountId: $account_id,
+    Types: ["Software and Configuration Checks/Security Best Practices"],
+    CreatedAt: $timestamp,
+    UpdatedAt: $timestamp,
+    Severity: {Label: "CRITICAL"},
+    Title: "DEV verification CRITICAL Security Hub finding",
+    Description: "Non-sensitive dev verification finding.",
+    Resources: [{
+      Type: "AwsAccount",
+      Id: ("AWS::::Account:" + $account_id),
+      Partition: "aws",
+      Region: $region
+    }],
+    Workflow: {Status: "NEW"},
+    RecordState: "ACTIVE"
+  }]' > /tmp/ops-platform-securityhub-test-finding.json
+
+aws securityhub batch-import-findings --region "$AWS_REGION" \
+  --findings file:///tmp/ops-platform-securityhub-test-finding.json \
+  --query '{SuccessCount:SuccessCount,FailedCount:FailedCount,FailedFindings:FailedFindings}' \
+  --output json
+
+# EventBridge→SQS→Workerの反映を最大3分待つ。
+for attempt in {1..18}; do
+  PORTAL_MATCH_COUNT="$(aws dynamodb scan \
+    --region "$AWS_REGION" --table-name "$PORTAL_PUBLIC_STATUS_ITEMS_TABLE" \
+    --filter-expression 'finding_id = :finding_id AND severity = :severity' \
+    --expression-attribute-values "{\":finding_id\":{\"S\":\"$TEST_FINDING_ID\"},\":severity\":{\"S\":\"critical\"}}" \
+    --select COUNT --query Count --output text)"
+  printf 'attempt=%s portal_match_count=%s\n' "$attempt" "$PORTAL_MATCH_COUNT"
+  [[ "$PORTAL_MATCH_COUNT" -ge 1 ]] && break
+  sleep 10
+done
+test "$PORTAL_MATCH_COUNT" -ge 1
+
+# Portalで同じタイトルが表示されることをCognitoログイン後に確認する。
+printf 'Portal確認対象: %s\n' "$TEST_FINDING_ID"
+~~~
+
+確認後に検証Findingを閉じる場合は次を実行する。Portal表示項目は監査用に残すか、`finding_id`を条件に特定してから明示承認のうえ削除する。
+
+~~~bash
+aws securityhub batch-update-findings --region "$AWS_REGION" \
+  --finding-identifiers "Id=$TEST_FINDING_ID,ProductArn=$SECURITYHUB_PRODUCT_ARN" \
+  --workflow Status=RESOLVED \
+  --record-state ARCHIVED
+~~~
+
 Frontendから確認する場合は、CloudFront URLでログイン後に`/status.html`と`/reports.html`を開き、一覧が表示されることを確認する。CLIでAPIを直接確認する場合は、ブラウザ開発者ツール等で取得した有効なCognito tokenを一時変数に入れ、Secretやtokenを作業記録へ残さない。
 
 ~~~bash

@@ -4,8 +4,8 @@ Single-shot job: determine the target period, aggregate the incidents /
 findings / alarm_events in that month, and upsert monthly_summaries keyed on
 period. Exits when done (CronJob semantics).
 
-A->B linkage: this CronJob is the ONLY execution subject that
-reflects the (non-sensitive) monthly summary into Product_B -- a report file in
+A->B linkage: this CronJob is the only execution subject that reflects the
+(non-sensitive) monthly summary into Product_B -- a report file in
 Portal_Storage reports/*, plus report_metadata and public_status_items. The
 three Product_B targets are mandatory. Missing configuration or failure of any
 target write makes the job exit non-zero and identifies the failed target
@@ -89,7 +89,7 @@ def link_to_portal(
 ) -> LinkageReport:
     """Reflect the non-sensitive summary into Product_B (one-way A -> B).
 
-    All targets are mandatory. This is the only place the linkage is triggered.
+    All targets are mandatory. This is the only monthly-summary linkage path.
     """
     targets = targets or PortalTargets.from_env()
     targets.validate()
